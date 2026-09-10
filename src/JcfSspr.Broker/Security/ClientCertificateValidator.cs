@@ -26,5 +26,5 @@ public sealed class ClientCertificateValidator(IOptions<BrokerSecurityOptions> o
         return hasClientAuth ? id : null;
     }
 
-    private static string Normalize(string value) => new(value.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+    private static string Normalize(string value) => new string(value.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
 }
