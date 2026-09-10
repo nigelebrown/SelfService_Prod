@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>JcfSspr.Portal</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../JcfSspr.Core/JcfSspr.Core.csproj" />
+  </ItemGroup>
+</Project>

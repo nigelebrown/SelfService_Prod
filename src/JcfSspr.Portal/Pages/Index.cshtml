@@ -1,0 +1,19 @@
+@page
+@model IndexModel
+@{ ViewData["Title"] = "Verify identity"; }
+<section class="card">
+<div class="eyebrow">SELF-SERVICE PASSWORD RESET</div><h1>Verify your identity</h1>
+<p class="lede">Your member details locate your record. Your pre-enrolled authenticator or one-time recovery code is the possession factor that authorizes self-service recovery.</p>
+@if (!string.IsNullOrWhiteSpace(Model.StatusMessage)) { <div class="alert error" role="status">@Model.StatusMessage</div> }
+<form method="post" autocomplete="off">
+<div asp-validation-summary="ModelOnly" class="validation"></div><div class="grid two">
+<div><label asp-for="Input.ComputerNumber"></label><input asp-for="Input.ComputerNumber" inputmode="numeric" autocomplete="off" /></div>
+<div><label asp-for="Input.DateOfBirth"></label><input asp-for="Input.DateOfBirth" type="date" autocomplete="off" /></div>
+<div><label asp-for="Input.FirstName"></label><input asp-for="Input.FirstName" autocomplete="off" /></div>
+<div><label asp-for="Input.LastName"></label><input asp-for="Input.LastName" autocomplete="off" /></div>
+<div><label asp-for="Input.Trn"></label><input asp-for="Input.Trn" autocomplete="off" /></div>
+<div><label asp-for="Input.AuthenticatorCode"></label><input asp-for="Input.AuthenticatorCode" autocomplete="one-time-code" /></div>
+</div><button type="submit">Continue securely</button></form>
+@if (Model.ShowEnrollmentLink && !string.IsNullOrWhiteSpace(Model.EnrollmentUrl)) { <p class="enroll"><a href="@Model.EnrollmentUrl">Enroll or replace your authenticator on the JCF network</a>.</p> }
+<p class="help">Not enrolled or lost both your authenticator and recovery codes? Contact ICTD using the established identity-verification process.</p>
+</section>
