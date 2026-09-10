@@ -22,7 +22,12 @@ public static class Totp
         var key = Base32.Decode(base32Secret);
         Span<byte> counter = stackalloc byte[8];
         BinaryPrimitives.WriteInt64BigEndian(counter, timeStep);
+        // RFC 6238 TOTP uses HMAC-SHA-1 by default and it remains the broadest
+        // authenticator-app interoperability profile. This is not using SHA-1
+        // as a collision-resistant hash or signature primitive.
+#pragma warning disable CA5350
         using var hmac = new HMACSHA1(key);
+#pragma warning restore CA5350
         var hash = hmac.ComputeHash(counter.ToArray());
         var offset = hash[^1] & 0x0F;
         var binary = ((hash[offset] & 0x7F) << 24)
