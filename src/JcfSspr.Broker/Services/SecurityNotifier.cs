@@ -7,6 +7,11 @@ namespace JcfSspr.Broker.Services;
 
 public sealed class SecurityNotifier(IOptions<NotificationOptions> options, ILogger<SecurityNotifier> logger)
 {
+    private static readonly Action<ILogger, string, Exception?> NotificationFailed = LoggerMessage.Define<string>(
+        LogLevel.Warning,
+        new EventId(2101, "PostResetNotificationFailed"),
+        "Post-reset notification failed for account {AccountName}");
+
     public async Task NotifyResetAsync(MemberRecord member, DateTimeOffset timestamp, CancellationToken cancellationToken)
     {
         if (!options.Value.Enabled || string.IsNullOrWhiteSpace(member.EmailAddress)) return;
@@ -26,7 +31,7 @@ public sealed class SecurityNotifier(IOptions<NotificationOptions> options, ILog
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Post-reset notification failed for account {AccountName}", member.AdAccountName);
+            NotificationFailed(logger, member.AdAccountName, ex);
         }
     }
 }
