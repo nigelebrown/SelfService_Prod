@@ -8,6 +8,11 @@ namespace JcfSspr.Broker.Services;
 
 public sealed class ActiveDirectoryResetService(IOptions<DirectoryOptions> options, ILogger<ActiveDirectoryResetService> logger)
 {
+    private static readonly Action<ILogger, string, Exception?> ResetCompleted = LoggerMessage.Define<string>(
+        LogLevel.Information,
+        new EventId(2401, "AdPasswordResetCompleted"),
+        "AD password reset completed for account {AccountName}");
+
     private readonly DirectoryOptions _options = options.Value;
 
     public Task ResetAsync(MemberRecord member, string newPassword, CancellationToken cancellationToken) => Task.Run(() => Reset(member, newPassword), cancellationToken);
@@ -32,14 +37,14 @@ public sealed class ActiveDirectoryResetService(IOptions<DirectoryOptions> optio
         var response = (SearchResponse)connection.SendRequest(search, TimeSpan.FromSeconds(_options.TimeoutSeconds));
         if (response.Entries.Count != 1) throw new InvalidOperationException("Authoritative AD object was not found uniquely inside the configured member OU.");
         var entry = response.Entries[0];
-        var account = Convert.ToString(entry.Attributes["sAMAccountName"]?[0]) ?? string.Empty;
+        var account = Convert.ToString(entry.Attributes["sAMAccountName"]?[0], System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
         if (!account.Equals(member.AdAccountName, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Authoritative account mapping does not match the AD object.");
-        if (Convert.ToString(entry.Attributes["adminCount"]?[0]) == "1") throw new ProtectedAccountException();
+        if (Convert.ToString(entry.Attributes["adminCount"]?[0], System.Globalization.CultureInfo.InvariantCulture) == "1") throw new ProtectedAccountException();
         if (entry.Attributes["memberOf"] is DirectoryAttribute groups)
         {
             foreach (var value in groups)
             {
-                var group = Convert.ToString(value) ?? string.Empty;
+                var group = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
                 if (_options.DeniedGroupDns.Contains(group, StringComparer.OrdinalIgnoreCase)) throw new ProtectedAccountException();
             }
         }
@@ -55,7 +60,7 @@ public sealed class ActiveDirectoryResetService(IOptions<DirectoryOptions> optio
             request.Modifications.Add(pwdLastSet);
         }
         connection.SendRequest(request, TimeSpan.FromSeconds(_options.TimeoutSeconds));
-        logger.LogInformation("AD password reset completed for account {AccountName}", member.AdAccountName);
+        ResetCompleted(logger, member.AdAccountName, null);
     }
 
     private static string EscapeGuid(Guid guid) => string.Concat(guid.ToByteArray().Select(b => $"\\{b:X2}"));
