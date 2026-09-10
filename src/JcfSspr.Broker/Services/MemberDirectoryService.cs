@@ -66,13 +66,13 @@ public sealed partial class MemberDirectoryService(IConfiguration configuration,
         return new MemberRecord
         {
             ComputerNumber = Convert.ToString(reader["Computer No"], System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
-            FirstName = Convert.ToString(reader["First Name"]) ?? string.Empty,
-            LastName = Convert.ToString(reader["Last Name"]) ?? string.Empty,
-            Trn = Convert.ToString(reader["TRN"]) ?? string.Empty,
+            FirstName = Convert.ToString(reader["First Name"], System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            LastName = Convert.ToString(reader["Last Name"], System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            Trn = Convert.ToString(reader["TRN"], System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
             DateOfBirth = DateOnly.FromDateTime(Convert.ToDateTime(reader["Date of Birth"], System.Globalization.CultureInfo.InvariantCulture)),
-            AdAccountName = Convert.ToString(reader["AD Account Name"])?.Trim() ?? string.Empty,
+            AdAccountName = Convert.ToString(reader["AD Account Name"], System.Globalization.CultureInfo.InvariantCulture)?.Trim() ?? string.Empty,
             AdObjectGuid = guid,
-            EmailAddress = Convert.ToString(reader["Email Address"])?.Trim() ?? string.Empty
+            EmailAddress = Convert.ToString(reader["Email Address"], System.Globalization.CultureInfo.InvariantCulture)?.Trim() ?? string.Empty
         };
     }
 
