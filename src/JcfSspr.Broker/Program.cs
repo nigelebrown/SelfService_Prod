@@ -50,8 +50,8 @@ app.Use(async (context, next) =>
     context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'";
     context.Response.Headers.XContentTypeOptions = "nosniff";
     context.Response.Headers.XFrameOptions = "DENY";
-    context.Response.Headers.ReferrerPolicy = "no-referrer";
-    context.Response.Headers.PermissionsPolicy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
     context.Response.Headers.CacheControl = "no-store, max-age=0";
     await next();
 });
