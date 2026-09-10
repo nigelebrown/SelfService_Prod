@@ -1,0 +1,15 @@
+@page
+@model ResetModel
+@{ ViewData["Title"] = "Choose new password"; }
+<section class="card">
+<h1>Choose your new password</h1><p class="lede">Your identity and possession factor have been verified. This short reset transaction expires automatically.</p>
+@if (!string.IsNullOrWhiteSpace(Model.StatusMessage)) { <div class="alert @(Model.Success ? "success" : "error")" role="status">@Model.StatusMessage</div> }
+@if (!Model.Success)
+{
+<form method="post" autocomplete="off"><div asp-validation-summary="ModelOnly" class="validation"></div><div class="grid two">
+<div><label asp-for="Input.NewPassword"></label><input asp-for="Input.NewPassword" autocomplete="new-password" /></div>
+<div><label asp-for="Input.ConfirmPassword"></label><input asp-for="Input.ConfirmPassword" autocomplete="new-password" /></div>
+</div><p class="hint">Use at least 14 characters. Avoid your name, regulation number, JCF terms, and common passwords.</p><button type="submit">Reset password</button></form>
+}
+else { <p><a href="/">Return to account reset</a></p> }
+</section>

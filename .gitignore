@@ -1,0 +1,16 @@
+**/bin/
+**/obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.pfx
+*.p12
+*.key
+*.cer
+*.crt
+*.secrets.json
+appsettings.Production.json
+appsettings.Local.json
+artifacts/
+TestResults/
