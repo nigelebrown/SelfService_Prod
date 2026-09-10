@@ -7,6 +7,16 @@ namespace JcfSspr.Broker.Services;
 
 public sealed class ResetOrchestrator(MemberDirectoryService members, TotpEnrollmentService enrollment, ThrottleService throttle, ResetTransactionService transactions, ActiveDirectoryResetService directory, SecurityNotifier notifier, AuditService audit, IOptions<PasswordPolicyOptions> policyOptions, TimeProvider timeProvider, ILogger<ResetOrchestrator> logger)
 {
+    private static readonly Action<ILogger, string, Exception?> VerificationFailed = LoggerMessage.Define<string>(
+        LogLevel.Error,
+        new EventId(2201, "SsprVerificationFailed"),
+        "SSPR verification failed; correlation {CorrelationId}");
+
+    private static readonly Action<ILogger, string, Exception?> ResetFailed = LoggerMessage.Define<string>(
+        LogLevel.Error,
+        new EventId(2202, "SsprResetFailed"),
+        "SSPR reset failed; correlation {CorrelationId}");
+
     public async Task<VerificationResponse> VerifyAsync(VerificationRequest request, string clientCertificateId, CancellationToken ct)
     {
         var correlationId = Guid.NewGuid().ToString("N");
@@ -38,7 +48,7 @@ public sealed class ResetOrchestrator(MemberDirectoryService members, TotpEnroll
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "SSPR verification failed; correlation {CorrelationId}", correlationId);
+            VerificationFailed(logger, correlationId, ex);
             return VerificationResponse.Rejected(correlationId, "The reset service is temporarily unavailable.");
         }
         finally
@@ -76,7 +86,7 @@ public sealed class ResetOrchestrator(MemberDirectoryService members, TotpEnroll
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "SSPR reset failed; correlation {CorrelationId}", correlationId);
+            ResetFailed(logger, correlationId, ex);
             return ResetResponse.Rejected(correlationId, "The reset service is temporarily unavailable.", canRetry: true);
         }
         finally
