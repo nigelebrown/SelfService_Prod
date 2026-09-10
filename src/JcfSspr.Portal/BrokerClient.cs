@@ -5,6 +5,11 @@ namespace JcfSspr.Portal;
 
 public sealed class BrokerClient(HttpClient httpClient, ILogger<BrokerClient> logger)
 {
+    private static readonly Action<ILogger, Exception?> VerificationFailed = LoggerMessage.Define(
+        LogLevel.Warning, new EventId(1001, "BrokerVerificationFailed"), "Broker verification request failed");
+    private static readonly Action<ILogger, Exception?> PasswordResetFailed = LoggerMessage.Define(
+        LogLevel.Warning, new EventId(1002, "BrokerPasswordResetFailed"), "Broker password reset request failed");
+
     public async Task<VerificationResponse> VerifyAsync(VerificationRequest request, CancellationToken ct)
     {
         try
@@ -16,7 +21,7 @@ public sealed class BrokerClient(HttpClient httpClient, ILogger<BrokerClient> lo
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            logger.LogWarning(ex, "Broker verification request failed");
+            VerificationFailed(logger, ex);
             return VerificationResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable.");
         }
     }
@@ -32,7 +37,7 @@ public sealed class BrokerClient(HttpClient httpClient, ILogger<BrokerClient> lo
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            logger.LogWarning(ex, "Broker password reset request failed");
+            PasswordResetFailed(logger, ex);
             return ResetResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable.");
         }
     }

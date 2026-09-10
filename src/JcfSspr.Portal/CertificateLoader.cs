@@ -18,5 +18,5 @@ public static class CertificateLoader
         return certificate;
     }
 
-    public static string Normalize(string thumbprint) => new(thumbprint.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+    public static string Normalize(string thumbprint) => new string(thumbprint.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
 }
