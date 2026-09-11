@@ -19,8 +19,8 @@ public sealed class SecurityNotifier(IOptions<NotificationOptions> options, ILog
         {
             using var message = new MailMessage(options.Value.From, member.EmailAddress)
             {
-                Subject = "Your JCF account password was reset",
-                Body = $"Your JCF account password was reset at {timestamp:yyyy-MM-dd HH:mm:ss} UTC. If you did not perform this reset, contact ICTD immediately."
+                Subject = "Your account password was reset",
+                Body = $"Your directory account password was reset at {timestamp:yyyy-MM-dd HH:mm:ss} UTC. If you did not perform this reset, contact your identity-service administrator immediately."
             };
             using var client = new SmtpClient(options.Value.Host, options.Value.Port)
             {

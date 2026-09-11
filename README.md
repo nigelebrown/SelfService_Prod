@@ -1,38 +1,41 @@
-# JCF Self-Service Password Reset — hardened redesign
+# Identity Recovery & Self-Service Platform
 
-This repository contains the source for the redesigned JCF self-service password reset service. It intentionally does **not** reproduce the original all-in-one deployment.
+This repository contains two independently deployable security packages plus a shared code library:
 
-## Topology
+- **IdentityRecovery.DmzPortal** — the public/kiosk-facing presentation package. It is intentionally unprivileged, is not domain joined, stores no HR/AD/SQL credentials, and has no direct route to HR, SQL, LDAP, SMB, RDP, or WinRM.
+- **IdentityRecovery.InternalService** — the internal identity authority and administration package. It performs HR identity resolution, secure PIN/TOTP validation, duplicate-safe AD resolution/provisioning, password reset, provisioning-policy enforcement, audit, and administrator support functions.
+- **IdentityRecovery.Core** — shared contracts and cryptographic/security primitives.
 
-- **JcfSspr.Portal** — unprivileged presentation tier. Deploy the same application in the DMZ and, if desired, on the internal network. It has no SQL or Active Directory credentials and no direct route to AD or the personnel database.
-- **JcfSspr.Broker** — internal-only reset authority. It verifies the member against the authoritative view, validates the pre-enrolled TOTP/recovery factor, applies durable throttling, selects the AD object from the server-side authoritative mapping, and performs the reset over validated LDAPS while running as a gMSA/service identity.
-- **JcfSspr.Core** — shared contracts and security primitives.
+The source directories retain their original internal namespace names for code continuity, but published assembly/product names are generic and the platform is not organization-branded.
 
-The DMZ portal reaches only the broker HTTPS endpoint. The broker requires an allow-listed client certificate. Network policy should additionally restrict the connection to the portal host(s) and broker TCP/443 only.
+## Security model
 
-## Security invariants
+The DMZ portal can communicate only with the Internal Identity Service over HTTPS 443 using an allow-listed mutual-TLS client certificate. Every sensitive API request also carries a unique request ID and timestamp; the internal service rejects replayed or stale requests.
 
-1. Static personnel attributes are lookup data, **not authentication**.
-2. A pre-enrolled possession factor is required for every self-service reset.
-3. The browser never chooses the AD object to reset. The broker gets `AD Object GUID` and `AD Account Name` from the authoritative member record and resets that exact object.
-4. No AD or SQL passwords belong in configuration or source. The broker is designed for Windows integrated authentication/gMSA.
-5. LDAPS certificate validation is never bypassed.
-6. The AD search base must be the member OU, not the domain root.
-7. Protected/admin accounts are refused in code in addition to AD ACLs.
-8. Reset requests and member claims have redacted `ToString()` implementations and must never be logged as objects.
-9. TOTP codes are replay-protected; recovery codes are one-time and stored only as hashes.
-10. Production refuses placeholder/insecure configuration at startup.
+The Internal Identity Service uses Windows integrated authentication/gMSA for SQL and Active Directory operations. SQL certificate validation is mandatory and AD changes use validated LDAPS. No reusable AD or SQL password belongs in source or application configuration.
 
-## Build
+Static HR attributes resolve and corroborate a claimed identity but do not by themselves authorize registration or reset. Routine authentication uses a standards-based TOTP authenticator. A secure PIN can bootstrap/recover access; locally stored PINs are represented only by PBKDF2-HMAC-SHA256 verifiers using unique salts plus a separate server-side pepper. Three failed PIN attempts lock the PIN method without disabling an already-enrolled authenticator.
 
-```powershell
-dotnet restore
-dotnet build --configuration Release
-dotnet test --configuration Release --no-build
-```
+An HR profile/photo is released only after successful authentication. The browser never chooses the AD object to reset. The internal service binds the employee's immutable HR subject ID to the exact AD `objectGUID` and account name.
 
-Target runtime is .NET 10 LTS. CI also scans committed configuration for likely plaintext secrets and reports vulnerable NuGet dependencies.
+## AD provisioning
 
-## Deployment order
+Before creating an account, the service searches AD for employee-ID and email/UPN/proxy-address matches. A unique employee-ID match is linked; any conflicting or ambiguous match stops automation and creates an administrator-review case. A new account is created **disabled** in a configured staging OU, receives only allow-listed baseline groups, and is enabled only after the member has completed required authenticator enrollment and successfully set a password.
 
-Read `docs/DEPLOYMENT.md`, `docs/DATABASE.md`, and `docs/ARCHITECTURE.md` before installing. The existing exposed SQL and AD passwords from the previous published ZIP must be rotated before this replacement is deployed.
+Provisioning profiles configure target OUs and platform-managed groups. Self-service users may select only profiles explicitly marked `UserSelectable`; privileged groups are hard-blocked. Internal administrators can apply approved profiles, and switching profiles reconciles only groups managed by this platform so unrelated access is not disturbed.
+
+## Administrator support
+
+The internal administration console uses Windows authentication and a dedicated AD group-SID allow-list. Authorized staff can search an employee, inspect HR/AD linkage and recovery status, issue or replace a secure PIN (shown once only), unlock the PIN method, revoke authenticator enrollment, enable/disable self-service, and apply approved provisioning profiles. Administrative actions are audited; PINs, TOTP secrets, passwords, and stored recovery-code values are never retrievable.
+
+## Quality and security gates
+
+CI requires:
+
+1. plaintext-secret scan;
+2. architecture regression scan (including no DMZ LDAP/SQL code and no certificate-validation bypass);
+3. .NET 10 Release build with warnings treated as errors and current analyzers;
+4. unit/security tests;
+5. vulnerable NuGet dependency reporting.
+
+Read `docs/ARCHITECTURE.md`, `docs/DEPLOYMENT.md`, `docs/HR-INTEGRATION.md`, and `docs/SECURITY-TEST-PLAN.md` before deployment. A production release additionally requires an isolated HR/AD end-to-end test and network/security validation.

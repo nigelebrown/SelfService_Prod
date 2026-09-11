@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <RootNamespace>JcfSspr.Portal</RootNamespace>
+    <AssemblyName>IdentityRecovery.DmzPortal</AssemblyName>
+    <Product>Identity Recovery &amp; Self-Service Portal</Product>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../JcfSspr.Core/JcfSspr.Core.csproj" />

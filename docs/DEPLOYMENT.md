@@ -1,41 +1,47 @@
 # Deployment
 
-## Before deployment
+## Package 1 — DMZ Portal
 
-- Rotate the SQL and AD credentials exposed in the previous published build.
-- Correct the domain controller certificate and remove every certificate-validation bypass.
-- Ensure the member view includes authoritative AD account name and AD object GUID.
-- Create the SSPR security tables using `database/schema.sql`.
-- Create/delegate a gMSA (preferred) for the broker. Grant password-reset rights only on the member OU. Do not grant Domain Admin or broad directory rights.
-- Issue three certificates from the existing internal PKI: broker server certificate, DMZ portal client certificate, internal portal client certificate.
+Publish the portal project as the `IdentityRecovery.DmzPortal` assembly. Place it on a dedicated DMZ Windows/IIS host or hardened reverse-proxy application host that is **not domain joined**.
 
-## Internal broker
+Required properties:
 
-1. Install .NET 10 ASP.NET Core Hosting Bundle on the Windows/IIS host.
-2. Run the broker IIS application pool as the gMSA.
-3. Configure both SQL connection strings for `Integrated Security=True;Encrypt=True;TrustServerCertificate=False`.
-4. Configure the LDAPS server by DNS name, port 636, and member OU search base.
-5. Put only the two portal client-certificate thumbprints in `BrokerSecurity:AllowedClientCertificateThumbprints`.
-6. Set `DataProtection:KeyPath` to an ACL-protected directory accessible only to the broker gMSA and administrators.
-7. Configure IIS to accept client certificates on the API binding and use Windows Authentication for `/enroll`.
-8. Firewall the broker API so only the two portal hosts can reach it.
+- public/user-facing HTTPS certificate on the reverse proxy/IIS binding;
+- a separate non-exportable client-authentication certificate used only for portal -> internal-service mTLS;
+- Kestrel bound to loopback behind IIS/reverse proxy;
+- exact `AllowedHosts` value and exact trusted proxy IP when forwarded headers are used;
+- firewall permit only DMZ portal IP -> Internal Identity Service IP TCP/443;
+- firewall deny/log DMZ -> AD/LDAP, SQL, SMB, RDP, WinRM and general internal subnets;
+- no SQL, LDAP, domain credentials, HR credentials, PIN store or TOTP secret store on the DMZ host.
 
-## Portal instances
+## Package 2 — Internal Identity Service
 
-Deploy `JcfSspr.Portal` twice if external and internal access are both required. Each instance:
+Publish the broker project as the `IdentityRecovery.InternalService` assembly on a dedicated domain-joined Windows/IIS application server in an internal application-security zone.
 
-- runs behind IIS/reverse proxy on loopback;
-- has a unique client certificate installed in LocalMachine/My with the app-pool identity granted private-key read permission;
-- is configured only with the broker URL and its certificate thumbprint;
-- has no SQL/LDAP configuration;
-- accepts no direct traffic to the Kestrel loopback port.
+Required properties:
 
-The DMZ firewall permits only portal -> broker TCP/443. It must not permit portal -> DC or portal -> SQL.
+- application pool/service runs as a least-privileged gMSA;
+- server-authentication TLS certificate with a valid DNS SAN and trusted chain;
+- API accepts only allow-listed portal client certificate(s);
+- SQL uses `Integrated Security=True;Encrypt=True;TrustServerCertificate=False`;
+- LDAPS uses the DC FQDN and validates the DC certificate;
+- gMSA is delegated only the required reset/create/move/group rights on the intended user OUs/groups and is not a Domain Admin/Account Operator;
+- data-protection key path is ACL-restricted;
+- `IDENTITY_RECOVERY_PIN_PEPPER` is injected outside source/config as base64 for at least 32 random bytes;
+- admin console uses Windows Authentication and a dedicated administrator AD group SID allow-list.
 
-## Production startup gates
+## HR/personnel source
 
-Both applications intentionally refuse to start in `Production` if critical settings still contain `REPLACE-...`, wildcard hosts are used, the broker URL is not HTTPS, the broker client-certificate allowlist is empty, or the AD search base is not an OU.
+Create a read-only identity-recovery view matching `docs/HR-INTEGRATION.md`. Only the Internal Identity Service receives database/network permission to this source. The DMZ host must not.
 
-## Monitoring
+## Security store
 
-Collect broker structured logs and the `SsprAudit` SQL table into the existing SOC/SIEM workflow. Alert on unusual reset volume, repeated failures, blocked source addresses, enrollment changes, certificate failures, and any attempted protected-account reset.
+Run `database/schema.sql` against the dedicated Identity Recovery security database. Grant the gMSA only the application permissions required for these tables. The store contains PIN verifiers/salts, protected TOTP secrets, recovery-code hashes, identity links, reset transactions, throttle/replay data, provisioning reviews and audit records; it must never contain plaintext PINs or passwords.
+
+## Provisioning policy
+
+Configure one default low-privilege staging profile, normally targeting `OU=Newly Created User,...`. Add only baseline groups. Configure all privileged groups in both the provisioning and directory deny lists. Additional profiles can map approved codes to approved OUs/groups; mark `UserSelectable=false` for profiles intended only for administrators.
+
+## Acceptance environment
+
+Do not first exercise provisioning against production users. Use an isolated test OU/domain and test HR records. Validate the full matrix in `docs/SECURITY-TEST-PLAN.md`, including duplicate/collision behavior, PIN lockout, TOTP replay, transaction binding, account enablement sequencing, admin authorization and firewall isolation.

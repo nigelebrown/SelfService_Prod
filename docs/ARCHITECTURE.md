@@ -1,58 +1,69 @@
 # Architecture
 
-## Recommended zero-additional-license design
+## Hard trust separation
 
 ```text
-Internet
-   |
-FortiGate / reverse proxy
-   |
-===================== DMZ =====================
-   |
-JcfSspr.Portal (DMZ instance)
-- no AD credential
-- no SQL credential
-- no LDAP route
-- no personnel DB route
-   |
-   | HTTPS 443 + mTLS
-   | firewall: portal IP -> broker IP only
-   v
-=================== INTERNAL ==================
-JcfSspr.Broker
-- runs as gMSA/service identity
-- validates possession factor
-- authoritative member/account mapping
-- durable throttle/audit store
-   |                   |
-   | TLS + Integrated  | validated LDAPS 636
-   v                   v
-Member/Security SQL    Member OU in AD
-
-JcfSspr.Portal (internal instance) ----mTLS----^
+Internet / internal kiosk users
+           |
+      HTTPS 443
+           v
+====================== DMZ ======================
+IdentityRecovery.DmzPortal
+- independent deployment package
+- not domain joined
+- no AD/LDAP route
+- no HR/SQL route
+- no service-account credentials
+- no PIN/TOTP database
+           |
+           | HTTPS 443 + mandatory mTLS
+           | request ID + timestamp replay defense
+           | firewall: exact portal IP -> exact service IP only
+           v
+================ INTERNAL APP ZONE ==============
+IdentityRecovery.InternalService
+- independent deployment package
+- Windows/gMSA service identity
+- Windows-authenticated admin console
+- HR identity resolution and employee photo retrieval
+- PIN verifier and TOTP/recovery credential store
+- duplicate-safe AD identity linking/provisioning
+- reset transactions, throttling, audit and review queue
+           |
+       +---+-------------------+
+       |                       |
+ TLS + integrated auth     validated LDAPS 636
+       |                       |
+       v                       v
+ HR/personnel source      Active Directory DS
+ Security SQL store       2016-2022 target
 ```
 
-The same `JcfSspr.Portal` binary can be installed twice: one DMZ-facing instance and one internal instance. Each instance gets a different client certificate so either path can be revoked independently.
+The DMZ package is considered compromiseable. Compromise must not reveal an AD/SQL service password or give the host a network route to the HR database or domain controllers. The only southbound application path is the constrained identity API over mTLS.
 
-## Trust boundaries
+## Identity lifecycle
 
-The portal is considered compromiseable. A portal compromise must not disclose a reusable AD/SQL password or allow arbitrary LDAP/SQL access. The portal can submit only reset requests to the broker.
+### First-time self-registration
 
-The broker is a Tier-1 security component and must remain internal. It is the only application process granted password-reset rights. Its gMSA should be delegated `Reset password` only on the member OU, denied interactive logon, and excluded from privileged OUs.
+1. User supplies an identifier (employee/computer/regulation number, username, or email as configured) plus the secure PIN.
+2. Before a TOTP enrollment exists, the service also requires at least two matching HR corroboration attributes by default (for example TRN, DOB, middle name). These attributes are not authenticators.
+3. Internal service validates the PIN verifier and HR identity. The DMZ receives no profile before authentication succeeds.
+4. Internal service searches AD. A single authoritative existing employee-ID match is linked. Any ambiguity/collision creates an admin-review case and stops.
+5. If no account exists and the provisioning policy permits it, a disabled account is created in the configured staging OU with only approved baseline groups.
+6. The authenticated user sees the HR photo/profile and explicitly confirms it.
+7. User enrolls a standards-based TOTP authenticator and proves the first code. Recovery codes are generated once and stored only as hashes.
+8. User sets the directory password. Only after this succeeds is a newly provisioned account enabled.
 
-## Identity and reset flow
+### Routine recovery
 
-1. Member supplies regulation/computer number plus existing personnel attributes to locate the member.
-2. Broker performs a generic match without revealing which field failed.
-3. Broker requires a TOTP code from an authenticator enrolled previously through the internal enrollment page. A single-use recovery code is accepted as the emergency self-service possession factor.
-4. Broker issues a five-minute, one-use reset transaction bound to the portal certificate and client address. The password is submitted only in the second request.
-5. Broker obtains `AD Object GUID`, `AD Account Name`, and notification address from the authoritative member view. The client never supplies the reset target.
-6. Broker validates password policy and rejects privileged/protected accounts.
-7. Broker locates the AD object by GUID inside the member OU, confirms the returned `sAMAccountName` matches the authoritative value, and writes `unicodePwd` over certificate-validated LDAPS.
-8. Broker records the event and sends a post-reset notification when the configured existing SMTP relay is available.
+1. User identifies the account and supplies a current TOTP code (preferred) or secure PIN.
+2. Internal service authenticates the factor, then releases the HR profile/photo for confirmation.
+3. A cryptographically random five-minute reset transaction is created, bound to source IP, mTLS client identity, HR subject, AD ObjectGUID and AD account.
+4. The new password is submitted in a separate request and written to that exact AD object over validated LDAPS.
+5. The transaction becomes unusable and the action is audited/optionally notified.
 
-## Enrollment
+## Administration
 
-`/enroll` exists only on the internal broker and requires Windows/Negotiate authentication. The authenticated Windows account must map exactly to the authoritative `AD Account Name` in the member view. The user scans a QR code, proves one TOTP code, and receives one-time recovery codes.
+The administration console exists only in the internal package. Windows/Negotiate authentication plus an allow-listed AD group SID is required. Administrators can issue one-time-display PINs, unlock PIN verification, revoke TOTP enrollment, enable/disable self-service, and apply configured OU/group profiles. They cannot retrieve PIN verifiers as PINs, TOTP secrets, passwords, or used recovery codes.
 
-A person who is not enrolled cannot self-enroll after forgetting the password. Existing ICTD/service-desk identity procedures remain the fallback.
+Provisioning profiles form an authorization boundary. Privileged groups are blocked globally. The profile engine reconciles only groups declared in platform profiles and never removes unrelated group memberships.
