@@ -29,6 +29,7 @@ public sealed class IdentityProfile
     public string RegulationNumberMasked { get; init; } = string.Empty;
     public string EmailAddress { get; init; } = string.Empty;
     public string DirectoryStatus { get; init; } = string.Empty;
+    public string PhotoDataUri { get; init; } = string.Empty;
     public bool AuthenticatorEnrolled { get; init; }
 }
 
@@ -37,6 +38,7 @@ public sealed class IdentityVerificationResponse
     public bool Success { get; init; }
     public bool AdminReviewRequired { get; init; }
     public bool AccountCreated { get; init; }
+    public bool AuthenticatorEnrollmentRequired { get; init; }
     public string Message { get; init; } = string.Empty;
     public string CorrelationId { get; init; } = string.Empty;
     public string TransactionToken { get; init; } = string.Empty;
@@ -80,4 +82,5 @@ public sealed class TotpEnrollmentConfirmResponse
 {
     public bool Success { get; init; }
     public string Message { get; init; } = string.Empty;
+    public IReadOnlyList<string> RecoveryCodes { get; init; } = Array.Empty<string>();
 }

@@ -70,11 +70,13 @@ public sealed class ApiReplayEntity
 public sealed class ResetTransactionEntity
 {
     public byte[] TokenHash { get; set; } = [];
+    public string SubjectId { get; set; } = string.Empty;
     public string ComputerNumber { get; set; } = string.Empty;
     public string AccountName { get; set; } = string.Empty;
     public Guid ObjectGuid { get; set; }
     public string SourceIp { get; set; } = string.Empty;
     public string ClientCertificateId { get; set; } = string.Empty;
+    public bool RequiresTotpEnrollment { get; set; }
     public DateTime ExpiresUtc { get; set; }
     public DateTime? UsedUtc { get; set; }
     public int PasswordAttempts { get; set; }

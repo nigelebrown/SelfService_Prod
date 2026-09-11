@@ -1,24 +1,27 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using JcfSspr.Broker.Data;
+using JcfSspr.Broker.Options;
 using JcfSspr.Core.Security;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace JcfSspr.Broker.Services;
 
-public sealed class TotpEnrollmentService(SecurityDbContext db, IDataProtectionProvider dataProtectionProvider, TimeProvider timeProvider)
+public sealed class TotpEnrollmentService(SecurityDbContext db, IDataProtectionProvider dataProtectionProvider, IOptions<AuthenticatorOptions> options, TimeProvider timeProvider)
 {
-    private readonly IDataProtector _secretProtector = dataProtectionProvider.CreateProtector("JcfSspr.TotpSecret.v1");
-    private readonly ITimeLimitedDataProtector _stateProtector = dataProtectionProvider.CreateProtector("JcfSspr.EnrollmentState.v1").ToTimeLimitedDataProtector();
+    private readonly IDataProtector _secretProtector = dataProtectionProvider.CreateProtector("IdentityRecovery.TotpSecret.v1");
+    private readonly ITimeLimitedDataProtector _stateProtector = dataProtectionProvider.CreateProtector("IdentityRecovery.EnrollmentState.v1").ToTimeLimitedDataProtector();
+    private readonly string _issuer = string.IsNullOrWhiteSpace(options.Value.Issuer) ? "Identity Recovery" : options.Value.Issuer.Trim();
 
     public EnrollmentStart Begin(MemberRecord member)
     {
         var secret = Totp.GenerateSecret();
         var state = new EnrollmentState(member.ComputerNumber, member.AdAccountName, secret);
         var token = _stateProtector.Protect(JsonSerializer.Serialize(state), TimeSpan.FromMinutes(10));
-        var label = Uri.EscapeDataString($"JCF:{member.AdAccountName}");
-        var issuer = Uri.EscapeDataString("Jamaica Constabulary Force");
+        var label = Uri.EscapeDataString($"{_issuer}:{member.AdAccountName}");
+        var issuer = Uri.EscapeDataString(_issuer);
         var uri = $"otpauth://totp/{label}?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30";
         return new EnrollmentStart(token, secret, uri);
     }
@@ -54,6 +57,18 @@ public sealed class TotpEnrollmentService(SecurityDbContext db, IDataProtectionP
         }
         await db.SaveChangesAsync(cancellationToken);
         return displayCodes;
+    }
+
+    public async Task<bool> IsEnrolledAsync(string computerNumber, CancellationToken cancellationToken) =>
+        await db.TotpEnrollments.AsNoTracking().AnyAsync(x => x.ComputerNumber == computerNumber && x.Enabled, cancellationToken);
+
+    public async Task DisableAsync(string computerNumber, CancellationToken cancellationToken)
+    {
+        var enrollment = await db.TotpEnrollments.SingleOrDefaultAsync(x => x.ComputerNumber == computerNumber, cancellationToken);
+        if (enrollment is null) return;
+        enrollment.Enabled = false;
+        enrollment.UpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<bool> VerifyPossessionFactorAsync(string computerNumber, string candidate, CancellationToken cancellationToken)

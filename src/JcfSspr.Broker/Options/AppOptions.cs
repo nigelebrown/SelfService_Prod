@@ -34,6 +34,7 @@ public sealed class PinSecurityOptions
     public int MaximumDigits { get; set; } = 12;
     public int Pbkdf2Iterations { get; set; } = 600_000;
     public int LockAfterFailures { get; set; } = 3;
+    public bool RequireCorroborationForPinBootstrap { get; set; } = true;
     public string PepperEnvironmentVariable { get; set; } = "IDENTITY_RECOVERY_PIN_PEPPER";
 }
 
