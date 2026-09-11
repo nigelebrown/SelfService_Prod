@@ -8,6 +8,7 @@
 @if (!Model.Verified)
 {
 <p class="lede">Use your registered authenticator whenever possible. If you are registering for the first time, use your secure PIN and provide the additional identity details requested below. Your profile is not displayed until verification succeeds.</p>
+<div class="security-note"><strong>Authenticator safety:</strong> enter a current code only on this portal or an approved recovery kiosk that you opened yourself. Never read the code to a caller, message sender, or support person.</div>
 @if (!string.IsNullOrWhiteSpace(Model.StatusMessage)) { <div class="alert error" role="status">@Model.StatusMessage</div> }
 <form method="post" autocomplete="off">
 <div asp-validation-summary="ModelOnly" class="validation"></div>

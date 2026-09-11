@@ -1,5 +1,6 @@
+@inject Microsoft.Extensions.Options.IOptions<JcfSspr.Portal.PortalOptions> PortalConfig
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>@ViewData["Title"] - Identity Recovery</title><link rel="stylesheet" href="~/css/site.css" asp-append-version="true" /></head>
-<body><header class="topbar"><div class="wrap"><strong>Identity Recovery & Self-Service Portal</strong><span>Secure account registration and recovery</span></div></header><main class="wrap main">@RenderBody()</main><footer class="wrap footer">Secure Identity Services · Never share your PIN, authenticator code, or password.</footer></body>
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>@ViewData["Title"] - Identity Recovery</title><link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/></head>
+<body data-kiosk="@(PortalConfig.Value.KioskMode?"true":"false")" data-kiosk-idle-minutes="@PortalConfig.Value.KioskIdleMinutes"><header class="topbar"><div class="wrap"><strong>Identity Recovery & Self-Service Portal</strong><span>Secure account registration and recovery</span></div></header><main class="wrap main">@RenderBody()</main><footer class="wrap footer"><strong>Protect your identity:</strong> never tell another person your PIN, authenticator code, or password. Support staff should never ask you to read an authenticator code to them.@if(PortalConfig.Value.KioskMode){<span> This kiosk automatically clears an inactive session.</span>}</footer>@if(PortalConfig.Value.KioskMode){<script src="~/js/kiosk.js" asp-append-version="true" defer></script>}</body>
 </html>

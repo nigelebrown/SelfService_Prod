@@ -22,6 +22,20 @@ public sealed class BrokerClient(HttpClient httpClient, ILogger<BrokerClient> lo
     public Task<ResetResponse> ResetAsync(PasswordResetRequest request, CancellationToken ct) =>
         PostAsync("api/v1/identity/reset", request, () => ResetResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable."), "password-reset", ct);
 
+    public async Task<bool> IsReadyAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var response = await httpClient.GetAsync("health/ready", HttpCompletionOption.ResponseHeadersRead, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            BrokerFailure(logger, "health-ready", ex);
+            return false;
+        }
+    }
+
     private async Task<TResponse> PostAsync<TRequest, TResponse>(string path, TRequest payload, Func<TResponse> fallback, string operation, CancellationToken ct)
     {
         try
