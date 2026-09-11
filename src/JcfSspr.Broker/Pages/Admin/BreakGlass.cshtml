@@ -1,0 +1,17 @@
+@page
+@model JcfSspr.Broker.Pages.Admin.BreakGlassModel
+@{ ViewData["Title"] = "Break-glass administrator"; }
+<section class="card">
+<h1>Break-glass administrator</h1>
+<p>Only an authorized Active Directory administrator can create, rotate, unlock, or disable the locally stored emergency administrator.</p>
+@if (!string.IsNullOrWhiteSpace(Model.StatusMessage)) { <div class="alert">@Model.StatusMessage</div> }
+<dl><dt>Configured</dt><dd>@(Model.Status.Enabled ? "Yes" : "No")</dd><dt>Username</dt><dd>@Model.Status.Username</dd><dt>Temporary block</dt><dd>@(Model.Status.TemporarilyBlocked ? $"Blocked until {Model.Status.BlockedUntilUtc:u}" : "No")</dd><dt>Failed attempts</dt><dd>@Model.Status.FailedAttempts</dd></dl>
+<form method="post" class="actions"><label asp-for="Username">Local username</label><input asp-for="Username" maxlength="64" autocomplete="off"/><button asp-page-handler="Rotate" type="submit">Create / rotate credentials</button>@if(Model.Status.Enabled){<button asp-page-handler="Unlock" type="submit">Clear temporary block</button><button asp-page-handler="Disable" type="submit">Disable local account</button>}</form>
+@if (!string.IsNullOrWhiteSpace(Model.GeneratedPassword))
+{
+<hr/><div class="alert"><strong>One-time credential display</strong><p>Store these credentials in the approved secure break-glass location. This page will not be able to display them again after you leave.</p></div>
+<p><strong>Username:</strong> @Model.Status.Username</p><p><strong>Generated password:</strong> <code>@Model.GeneratedPassword</code></p>
+@if (!string.IsNullOrWhiteSpace(Model.QrDataUri)){<img class="qr" src="@Model.QrDataUri" alt="Authenticator QR code"/>}
+<p><strong>Manual authenticator secret:</strong> <code>@Model.ManualTotpSecret</code></p>
+}
+</section>

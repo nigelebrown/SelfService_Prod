@@ -45,6 +45,26 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'dbo.IdentityLocalAdmin', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.IdentityLocalAdmin
+    (
+        Id int NOT NULL CONSTRAINT PK_IdentityLocalAdmin PRIMARY KEY,
+        Username nvarchar(64) NOT NULL,
+        PasswordSalt varbinary(32) NOT NULL,
+        PasswordVerifier varbinary(32) NOT NULL,
+        Iterations int NOT NULL,
+        ProtectedTotpSecret nvarchar(max) NOT NULL,
+        LastAcceptedTimeStep bigint NOT NULL CONSTRAINT DF_IdentityLocalAdmin_LastStep DEFAULT(-1),
+        FailedAttempts int NOT NULL CONSTRAINT DF_IdentityLocalAdmin_Failures DEFAULT(0),
+        BlockedUntilUtc datetime2(0) NULL,
+        Enabled bit NOT NULL CONSTRAINT DF_IdentityLocalAdmin_Enabled DEFAULT(1),
+        UpdatedUtc datetime2(0) NOT NULL
+    );
+    CREATE UNIQUE INDEX UX_IdentityLocalAdmin_Username ON dbo.IdentityLocalAdmin(Username);
+END;
+GO
+
 IF OBJECT_ID(N'dbo.IdentitySelfServiceStatus', N'U') IS NULL
 BEGIN
     CREATE TABLE dbo.IdentitySelfServiceStatus

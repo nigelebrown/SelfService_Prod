@@ -1,0 +1,16 @@
+@page
+@model JcfSspr.Broker.Pages.Admin.LocalLoginModel
+@{ ViewData["Title"] = "Local emergency administrator"; }
+<section class="card narrow">
+<h1>Local emergency administrator</h1>
+<p>This sign-in is for break-glass use when normal Active Directory administrator authentication is unavailable. Use the locally issued password and authenticator code.</p>
+@if (!string.IsNullOrWhiteSpace(Model.StatusMessage)) { <div class="alert">@Model.StatusMessage</div> }
+<form method="post">
+<input asp-for="ReturnUrl" type="hidden" />
+<label asp-for="Username">Local administrator username</label><input asp-for="Username" autocomplete="username" maxlength="64" />
+<label asp-for="Password">Password</label><input asp-for="Password" type="password" autocomplete="current-password" maxlength="128" />
+<label asp-for="AuthenticatorCode">Authenticator code</label><input asp-for="AuthenticatorCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8" />
+<button type="submit">Sign in securely</button>
+</form>
+<p class="muted">Normal administrators should use Windows/Active Directory authentication. This local account is stored only in the internal security service and cannot be used from the DMZ portal.</p>
+</section>

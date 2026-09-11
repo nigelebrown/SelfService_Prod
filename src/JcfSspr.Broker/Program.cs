@@ -5,6 +5,8 @@ using JcfSspr.Broker.Security;
 using JcfSspr.Broker.Services;
 using JcfSspr.Core.Contracts;
 using JcfSspr.Core.Security;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +16,7 @@ builder.Services.Configure<MemberDirectoryOptions>(builder.Configuration.GetSect
 builder.Services.Configure<DirectoryOptions>(builder.Configuration.GetSection("Directory"));
 builder.Services.Configure<BrokerSecurityOptions>(builder.Configuration.GetSection("BrokerSecurity"));
 builder.Services.Configure<PinSecurityOptions>(builder.Configuration.GetSection("PinSecurity"));
+builder.Services.Configure<LocalAdminSecurityOptions>(builder.Configuration.GetSection("LocalAdminSecurity"));
 builder.Services.Configure<AuthenticatorOptions>(builder.Configuration.GetSection("Authenticator"));
 builder.Services.Configure<ProvisioningOptions>(builder.Configuration.GetSection("Provisioning"));
 builder.Services.Configure<AdminAuthorizationOptions>(builder.Configuration.GetSection("AdminAuthorization"));
@@ -31,16 +34,56 @@ Directory.CreateDirectory(keyPath);
 var dataProtection = builder.Services.AddDataProtection().SetApplicationName("IdentityRecovery.Internal").PersistKeysToFileSystem(new DirectoryInfo(keyPath));
 if (OperatingSystem.IsWindows()) dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
 
+const string combinedAdminScheme = "IdentityRecovery.AdminCombined";
+const string localAdminCookieName = "__Host-IdentityRecovery.LocalAdmin";
 var adminSids = builder.Configuration.GetSection("AdminAuthorization:AllowedGroupSids").Get<string[]>() ?? [];
-builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
-builder.Services.AddAuthorization(options => options.AddPolicy("IdentityAdmin", policy =>
+var localAdminOptions = builder.Configuration.GetSection("LocalAdminSecurity").Get<LocalAdminSecurityOptions>() ?? new LocalAdminSecurityOptions();
+builder.Services.AddAuthentication(options =>
 {
-    policy.RequireAuthenticatedUser();
-    policy.RequireAssertion(context => context.User.Claims.Any(c => c.Type == ClaimTypes.GroupSid && adminSids.Contains(c.Value, StringComparer.OrdinalIgnoreCase)));
-}));
+    options.DefaultScheme = combinedAdminScheme;
+    options.DefaultAuthenticateScheme = combinedAdminScheme;
+    options.DefaultChallengeScheme = combinedAdminScheme;
+})
+.AddPolicyScheme(combinedAdminScheme, combinedAdminScheme, options =>
+{
+    options.ForwardDefaultSelector = context => context.Request.Cookies.ContainsKey(localAdminCookieName)
+        ? LocalAdminAuthDefaults.Scheme
+        : NegotiateDefaults.AuthenticationScheme;
+})
+.AddNegotiate()
+.AddCookie(LocalAdminAuthDefaults.Scheme, options =>
+{
+    options.Cookie.Name = localAdminCookieName;
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.Path = "/";
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(Math.Clamp(localAdminOptions.SessionMinutes, 5, 30));
+    options.SlidingExpiration = false;
+    options.LoginPath = "/Admin/LocalLogin";
+    options.AccessDeniedPath = "/Admin/LocalLogin";
+});
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("DirectoryAdminOnly", policy =>
+    {
+        policy.AddAuthenticationSchemes(NegotiateDefaults.AuthenticationScheme);
+        policy.RequireAuthenticatedUser();
+        policy.RequireAssertion(context => HasDirectoryAdminGroup(context.User, adminSids));
+    });
+    options.AddPolicy("IdentityAdmin", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireAssertion(context =>
+            HasDirectoryAdminGroup(context.User, adminSids)
+            || context.User.HasClaim(LocalAdminAuthDefaults.ClaimType, "true"));
+    });
+});
 builder.Services.AddRazorPages(options => options.Conventions.AuthorizeFolder("/Admin", "IdentityAdmin"));
 builder.Services.AddScoped<HrIdentityDirectoryService>();
 builder.Services.AddScoped<PinCredentialService>();
+builder.Services.AddScoped<LocalAdminService>();
 builder.Services.AddScoped<TotpEnrollmentService>();
 builder.Services.AddScoped<ThrottleService>();
 builder.Services.AddScoped<ProvisioningPolicyService>();
@@ -110,6 +153,9 @@ app.MapRazorPages();
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 app.Run();
 
+static bool HasDirectoryAdminGroup(ClaimsPrincipal user, string[] adminSids) =>
+    user.Claims.Any(c => c.Type == ClaimTypes.GroupSid && adminSids.Contains(c.Value, StringComparer.OrdinalIgnoreCase));
+
 static void ValidateProductionConfiguration(WebApplication app, string[] adminSids)
 {
     if (!app.Environment.IsProduction()) return;
@@ -131,8 +177,9 @@ static void ValidateProductionConfiguration(WebApplication app, string[] adminSi
     if (hosts == "*" || hosts.Contains("REPLACE", StringComparison.OrdinalIgnoreCase)) errors.Add("AllowedHosts must be the real internal-service hostname.");
     if (adminSids.Length == 0 || adminSids.Any(x => x.Contains("REPLACE", StringComparison.OrdinalIgnoreCase))) errors.Add("AdminAuthorization:AllowedGroupSids must contain a dedicated admin group SID.");
     var pinOptions = app.Configuration.GetSection("PinSecurity").Get<PinSecurityOptions>() ?? new PinSecurityOptions();
-    var pepper = Environment.GetEnvironmentVariable(pinOptions.PepperEnvironmentVariable);
-    if (string.IsNullOrWhiteSpace(pepper)) errors.Add("PIN pepper environment variable is not configured.");
+    if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(pinOptions.PepperEnvironmentVariable))) errors.Add("PIN pepper environment variable is not configured.");
+    var localOptions = app.Configuration.GetSection("LocalAdminSecurity").Get<LocalAdminSecurityOptions>() ?? new LocalAdminSecurityOptions();
+    if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(localOptions.PepperEnvironmentVariable))) errors.Add("Local administrator pepper environment variable is not configured.");
     if (!OperatingSystem.IsWindows()) errors.Add("Production internal service is designed for Windows/gMSA integrated authentication.");
     if (errors.Count > 0) throw new InvalidOperationException("Unsafe production configuration: " + string.Join(" ", errors));
 }

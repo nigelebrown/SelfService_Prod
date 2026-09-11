@@ -31,6 +31,21 @@ public sealed class PinCredentialEntity
     public DateTime UpdatedUtc { get; set; }
 }
 
+public sealed class LocalAdminEntity
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public byte[] PasswordSalt { get; set; } = [];
+    public byte[] PasswordVerifier { get; set; } = [];
+    public int Iterations { get; set; }
+    public string ProtectedTotpSecret { get; set; } = string.Empty;
+    public long LastAcceptedTimeStep { get; set; } = -1;
+    public int FailedAttempts { get; set; }
+    public DateTime? BlockedUntilUtc { get; set; }
+    public bool Enabled { get; set; } = true;
+    public DateTime UpdatedUtc { get; set; }
+}
+
 public sealed class SelfServiceStatusEntity
 {
     public string SubjectId { get; set; } = string.Empty;

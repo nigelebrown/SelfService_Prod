@@ -7,6 +7,7 @@ public sealed class SecurityDbContext(DbContextOptions<SecurityDbContext> option
     public DbSet<TotpEnrollmentEntity> TotpEnrollments => Set<TotpEnrollmentEntity>();
     public DbSet<RecoveryCodeEntity> RecoveryCodes => Set<RecoveryCodeEntity>();
     public DbSet<PinCredentialEntity> PinCredentials => Set<PinCredentialEntity>();
+    public DbSet<LocalAdminEntity> LocalAdmins => Set<LocalAdminEntity>();
     public DbSet<SelfServiceStatusEntity> SelfServiceStatuses => Set<SelfServiceStatusEntity>();
     public DbSet<SubjectIdentityEntity> SubjectIdentities => Set<SubjectIdentityEntity>();
     public DbSet<ThrottleEntity> Throttles => Set<ThrottleEntity>();
@@ -21,6 +22,8 @@ public sealed class SecurityDbContext(DbContextOptions<SecurityDbContext> option
         modelBuilder.Entity<RecoveryCodeEntity>().ToTable("IdentityRecoveryCode").HasKey(x => x.Id);
         modelBuilder.Entity<RecoveryCodeEntity>().HasIndex(x => x.ComputerNumber);
         modelBuilder.Entity<PinCredentialEntity>().ToTable("IdentityPinCredential").HasKey(x => x.SubjectId);
+        modelBuilder.Entity<LocalAdminEntity>().ToTable("IdentityLocalAdmin").HasKey(x => x.Id);
+        modelBuilder.Entity<LocalAdminEntity>().HasIndex(x => x.Username).IsUnique();
         modelBuilder.Entity<SelfServiceStatusEntity>().ToTable("IdentitySelfServiceStatus").HasKey(x => x.SubjectId);
         modelBuilder.Entity<SubjectIdentityEntity>().ToTable("IdentitySubjectLink").HasKey(x => x.SubjectId);
         modelBuilder.Entity<SubjectIdentityEntity>().HasIndex(x => x.AdObjectGuid).IsUnique().HasFilter("[AdObjectGuid] IS NOT NULL");

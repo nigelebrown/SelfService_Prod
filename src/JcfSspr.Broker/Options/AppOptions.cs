@@ -38,6 +38,17 @@ public sealed class PinSecurityOptions
     public string PepperEnvironmentVariable { get; set; } = "IDENTITY_RECOVERY_PIN_PEPPER";
 }
 
+public sealed class LocalAdminSecurityOptions
+{
+    public int MinimumPasswordLength { get; set; } = 20;
+    public int MaximumPasswordLength { get; set; } = 128;
+    public int Pbkdf2Iterations { get; set; } = 600_000;
+    public int BlockAfterFailures { get; set; } = 5;
+    public int BlockMinutes { get; set; } = 30;
+    public int SessionMinutes { get; set; } = 15;
+    public string PepperEnvironmentVariable { get; set; } = "IDENTITY_RECOVERY_LOCAL_ADMIN_PEPPER";
+}
+
 public sealed class AuthenticatorOptions
 {
     public string Issuer { get; set; } = "Identity Recovery";
