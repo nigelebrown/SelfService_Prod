@@ -83,48 +83,24 @@ app.MapPost("/api/v1/identity/verify", async (HttpContext context, IdentityVerif
     if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
     return Results.Ok(await orchestrator.VerifyAsync(request, clientId, ct));
 }).AllowAnonymous();
-
-app.MapPost("/api/v1/identity/profile", async (HttpContext context, IdentityProfileRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
-{
-    var clientId = await validator.GetValidatedClientIdAsync(context);
-    if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
-    return Results.Ok(await orchestrator.GetProfileAsync(request, clientId, ct));
-}).AllowAnonymous();
-
 app.MapPost("/api/v1/identity/enroll/start", async (HttpContext context, TotpEnrollmentStartRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
 {
     var clientId = await validator.GetValidatedClientIdAsync(context);
     if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
     return Results.Ok(await orchestrator.StartAuthenticatorEnrollmentAsync(request, clientId, ct));
 }).AllowAnonymous();
-
 app.MapPost("/api/v1/identity/enroll/confirm", async (HttpContext context, TotpEnrollmentConfirmRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
 {
     var clientId = await validator.GetValidatedClientIdAsync(context);
     if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
     return Results.Ok(await orchestrator.ConfirmAuthenticatorEnrollmentAsync(request, clientId, ct));
 }).AllowAnonymous();
-
 app.MapPost("/api/v1/identity/reset", async (HttpContext context, PasswordResetRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
 {
     var clientId = await validator.GetValidatedClientIdAsync(context);
     if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
     return Results.Ok(await orchestrator.ResetAsync(request, clientId, ct));
 }).AllowAnonymous();
-
-app.MapGet("/admin/api/subject", async (string identifier, AdminIdentityService admin, CancellationToken ct) =>
-{
-    var result = await admin.FindAsync(identifier, ct);
-    return result is null ? Results.NotFound() : Results.Ok(result);
-}).RequireAuthorization("IdentityAdmin");
-app.MapPost("/admin/api/{subjectId}/pin/unlock", (string subjectId, AdminIdentityService admin, CancellationToken ct) => admin.UnlockPinAsync(subjectId, ct)).RequireAuthorization("IdentityAdmin");
-app.MapPost("/admin/api/{subjectId}/authenticator/reset", (string subjectId, AdminIdentityService admin, CancellationToken ct) => admin.ResetAuthenticatorAsync(subjectId, ct)).RequireAuthorization("IdentityAdmin");
-app.MapPost("/admin/api/{subjectId}/profile/{profileCode}", async (HttpContext context, string subjectId, string profileCode, AdminIdentityService admin, CancellationToken ct) =>
-{
-    await admin.ApplyProfileAsync(subjectId, profileCode, context.User.Identity?.Name ?? "unknown", ct);
-    return Results.Ok();
-}).RequireAuthorization("IdentityAdmin");
-app.MapPost("/admin/api/{subjectId}/selfservice/enable", (string subjectId, AdminIdentityService admin, CancellationToken ct) => admin.SetSelfServiceDisabledAsync(subjectId, false, string.Empty, ct)).RequireAuthorization("IdentityAdmin");
 
 app.MapRazorPages();
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
@@ -148,8 +124,8 @@ static void ValidateProductionConfiguration(WebApplication app, string[] adminSi
     var certs = app.Configuration.GetSection("BrokerSecurity:AllowedClientCertificateThumbprints").Get<string[]>() ?? [];
     if (certs.Length == 0 || certs.Any(x => x.Contains("REPLACE", StringComparison.OrdinalIgnoreCase))) errors.Add("Broker client certificate allowlist is not configured.");
     var hosts = app.Configuration["AllowedHosts"] ?? string.Empty;
-    if (hosts == "*" || hosts.Contains("REPLACE", StringComparison.OrdinalIgnoreCase)) errors.Add("AllowedHosts must be the real broker hostname.");
-    if (adminSids.Length == 0) errors.Add("AdminAuthorization:AllowedGroupSids must contain at least one dedicated admin group SID.");
+    if (hosts == "*" || hosts.Contains("REPLACE", StringComparison.OrdinalIgnoreCase)) errors.Add("AllowedHosts must be the real internal-service hostname.");
+    if (adminSids.Length == 0 || adminSids.Any(x => x.Contains("REPLACE", StringComparison.OrdinalIgnoreCase))) errors.Add("AdminAuthorization:AllowedGroupSids must contain a dedicated admin group SID.");
     var pinOptions = app.Configuration.GetSection("PinSecurity").Get<PinSecurityOptions>() ?? new PinSecurityOptions();
     var pepper = Environment.GetEnvironmentVariable(pinOptions.PepperEnvironmentVariable);
     if (string.IsNullOrWhiteSpace(pepper)) errors.Add("PIN pepper environment variable is not configured.");

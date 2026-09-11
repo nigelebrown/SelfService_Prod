@@ -1,29 +1,4 @@
 @page
 @model EnrollModel
-@{ ViewData["Title"] = "Authenticator enrollment"; }
-<section class="card">
-<h1>Authenticator enrollment</h1>
-<p>This page is available only on the JCF network and uses your current Windows sign-in to establish who is enrolling.</p>
-@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="alert error">@Model.ErrorMessage</div> }
-@if (Model.RecoveryCodes.Count > 0)
-{
-    <div class="alert success">Enrollment completed. Store these recovery codes securely. Each code works once and they will not be displayed again.</div>
-    <div class="codes">@foreach (var code in Model.RecoveryCodes) { <code>@code</code> }</div>
-}
-else if (!string.IsNullOrWhiteSpace(Model.ProtectedState))
-{
-    <p>Scan this QR code with your authenticator app, then enter the current six-digit code to confirm enrollment.</p>
-    <img class="qr" src="@Model.QrDataUri" alt="Authenticator QR code" />
-    <details><summary>Manual setup key</summary><code>@Model.ManualSecret</code></details>
-    <form method="post" asp-page-handler="Confirm" autocomplete="off">
-        <input type="hidden" asp-for="ProtectedState" />
-        <label asp-for="Code"></label><input asp-for="Code" inputmode="numeric" autocomplete="one-time-code" />
-        <button type="submit">Confirm enrollment</button>
-    </form>
-}
-else
-{
-    <p>Signed in as <strong>@User.Identity?.Name</strong>.</p>
-    <form method="post" asp-page-handler="Begin"><button type="submit">Begin authenticator enrollment</button></form>
-}
-</section>
+@{ ViewData["Title"] = "Enrollment"; }
+<section class="card"><h1>Enrollment has moved</h1><p>Member self-registration and authenticator enrollment are performed through the Identity Recovery & Self-Service Portal after identity verification. Authorized support staff should use the <a asp-page="/Admin/Index">Administration Console</a>.</p></section>
