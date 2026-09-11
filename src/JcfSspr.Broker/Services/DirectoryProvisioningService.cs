@@ -34,13 +34,13 @@ public sealed class DirectoryProvisioningService(
 
         var candidates = FindCandidates(connection, person);
         var exact = candidates.Where(x => Attribute(x, "employeeID").Equals(person.SubjectId, StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (exact.Length == 1)
+        if (exact.Length == 1 && candidates.Count == 1)
         {
             var member = ToMember(person, exact[0]);
             await SaveLinkAsync(person, member, "Existing", string.Empty, cancellationToken);
             return new DirectoryResolution(member, false, false, "Existing");
         }
-        if (exact.Length > 1 || candidates.Count > 0)
+        if (candidates.Count > 0)
         {
             await CreateReviewAsync(person.SubjectId, "DirectoryIdentityConflict", "One or more directory objects matched employee attributes but could not be uniquely bound to the HR employee ID.", cancellationToken);
             return DirectoryResolution.ReviewRequired;
@@ -119,7 +119,7 @@ public sealed class DirectoryProvisioningService(
             connection.SendRequest(new ModifyDNRequest(entry.DistinguishedName, profile.TargetOuDn, rdn) { DeleteOldRdn = true }, TimeSpan.FromSeconds(_directory.TimeoutSeconds));
             entry = FindByGuid(connection, objectGuid) ?? throw new InvalidOperationException("AD account could not be resolved after OU move.");
         }
-        AddBaselineGroups(connection, entry.DistinguishedName, profile);
+        ReconcileManagedGroups(connection, entry.DistinguishedName, profile);
         link.ProvisioningProfileCode = profile.Code;
         link.UpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
         db.Audits.Add(new AuditEntity
@@ -200,15 +200,43 @@ public sealed class DirectoryProvisioningService(
 
     private void AddBaselineGroups(LdapConnection connection, string userDn, ProvisioningProfileOptions profile)
     {
-        foreach (var groupDn in profile.GroupDns.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var groupDn in profile.GroupDns.Distinct(StringComparer.OrdinalIgnoreCase)) AddToManagedGroup(connection, groupDn, userDn);
+    }
+
+    private void ReconcileManagedGroups(LdapConnection connection, string userDn, ProvisioningProfileOptions profile)
+    {
+        var desired = profile.GroupDns.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var managed = _provisioning.Profiles.SelectMany(x => x.GroupDns).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(group => !_provisioning.BlockedGroupDns.Contains(group, StringComparer.OrdinalIgnoreCase) && !_directory.DeniedGroupDns.Contains(group, StringComparer.OrdinalIgnoreCase));
+        foreach (var groupDn in managed)
         {
-            if (_provisioning.BlockedGroupDns.Contains(groupDn, StringComparer.OrdinalIgnoreCase) || _directory.DeniedGroupDns.Contains(groupDn, StringComparer.OrdinalIgnoreCase))
-                throw new InvalidOperationException("A blocked privileged group was requested.");
-            var modification = new DirectoryAttributeModification { Name = "member", Operation = DirectoryAttributeOperation.Add };
-            modification.Add(userDn);
-            try { connection.SendRequest(new ModifyRequest(groupDn, modification), TimeSpan.FromSeconds(_directory.TimeoutSeconds)); }
-            catch (DirectoryOperationException ex) when (ex.Response?.ResultCode == ResultCode.AttributeOrValueExists) { }
+            if (desired.Contains(groupDn)) AddToManagedGroup(connection, groupDn, userDn);
+            else RemoveFromManagedGroup(connection, groupDn, userDn);
         }
+    }
+
+    private void AddToManagedGroup(LdapConnection connection, string groupDn, string userDn)
+    {
+        EnsureGroupAllowed(groupDn);
+        var modification = new DirectoryAttributeModification { Name = "member", Operation = DirectoryAttributeOperation.Add };
+        modification.Add(userDn);
+        try { connection.SendRequest(new ModifyRequest(groupDn, modification), TimeSpan.FromSeconds(_directory.TimeoutSeconds)); }
+        catch (DirectoryOperationException ex) when (ex.Response?.ResultCode == ResultCode.AttributeOrValueExists) { }
+    }
+
+    private void RemoveFromManagedGroup(LdapConnection connection, string groupDn, string userDn)
+    {
+        EnsureGroupAllowed(groupDn);
+        var modification = new DirectoryAttributeModification { Name = "member", Operation = DirectoryAttributeOperation.Delete };
+        modification.Add(userDn);
+        try { connection.SendRequest(new ModifyRequest(groupDn, modification), TimeSpan.FromSeconds(_directory.TimeoutSeconds)); }
+        catch (DirectoryOperationException ex) when (ex.Response?.ResultCode == ResultCode.NoSuchAttribute) { }
+    }
+
+    private void EnsureGroupAllowed(string groupDn)
+    {
+        if (_provisioning.BlockedGroupDns.Contains(groupDn, StringComparer.OrdinalIgnoreCase) || _directory.DeniedGroupDns.Contains(groupDn, StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException("A blocked privileged group was requested.");
     }
 
     private async Task SaveLinkAsync(HrPersonRecord person, MemberRecord member, string state, string profileCode, CancellationToken cancellationToken)
@@ -240,7 +268,7 @@ public sealed class DirectoryProvisioningService(
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private MemberRecord ToMember(HrPersonRecord person, SearchResultEntry entry)
+    private static MemberRecord ToMember(HrPersonRecord person, SearchResultEntry entry)
     {
         var guidBytes = entry.Attributes["objectGUID"]?[0] as byte[] ?? throw new InvalidOperationException("AD objectGUID is missing.");
         return new MemberRecord
@@ -277,7 +305,22 @@ public sealed class DirectoryProvisioningService(
             : string.Empty;
 
     private static string EscapeFilter(string value) => value.Replace("\\", "\\5c", StringComparison.Ordinal).Replace("*", "\\2a", StringComparison.Ordinal).Replace("(", "\\28", StringComparison.Ordinal).Replace(")", "\\29", StringComparison.Ordinal).Replace("\0", "\\00", StringComparison.Ordinal);
-    private static string EscapeDnValue(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace(",", "\\,", StringComparison.Ordinal).Replace("+", "\\+", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal).Replace("<", "\\<", StringComparison.Ordinal).Replace(">", "\\>", StringComparison.Ordinal).Replace(";", "\\;", StringComparison.Ordinal);
+
+    private static string EscapeDnValue(string value)
+    {
+        if (value.Length == 0) return value;
+        var builder = new StringBuilder(value.Length + 8);
+        for (var i = 0; i < value.Length; i++)
+        {
+            var character = value[i];
+            if (character == '\0') { builder.Append("\\00"); continue; }
+            var escape = character is ',' or '+' or '"' or '\\' or '<' or '>' or ';' or '=' || (i == 0 && (character is ' ' or '#')) || (i == value.Length - 1 && character == ' ');
+            if (escape) builder.Append('\\');
+            builder.Append(character);
+        }
+        return builder.ToString();
+    }
+
     private static string SanitizeDirectoryError(string value) => value.Length > 200 ? value[..200] : value;
 }
 
