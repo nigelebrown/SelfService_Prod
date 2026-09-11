@@ -1,5 +1,9 @@
+using System.Security.Cryptography;
+using System.Text;
 using JcfSspr.Broker.Data;
+using JcfSspr.Broker.Options;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace JcfSspr.Broker.Services;
 
@@ -9,8 +13,11 @@ public sealed class AdminIdentityService(
     PinCredentialService pins,
     TotpEnrollmentService totp,
     DirectoryProvisioningService provisioning,
+    IOptions<PinSecurityOptions> pinOptions,
     TimeProvider timeProvider)
 {
+    private readonly PinSecurityOptions _pinOptions = pinOptions.Value;
+
     public async Task<AdminSubjectView?> FindAsync(string identifier, CancellationToken cancellationToken)
     {
         HrPersonRecord? person;
@@ -29,16 +36,35 @@ public sealed class AdminIdentityService(
             link?.ProvisioningState ?? "Unlinked", link?.ProvisioningProfileCode ?? string.Empty, pending);
     }
 
-    public Task UnlockPinAsync(string subjectId, CancellationToken cancellationToken) => pins.UnlockAsync(subjectId, cancellationToken);
+    public async Task<string> IssuePinAsync(string subjectId, string actor, CancellationToken cancellationToken)
+    {
+        var person = await hr.FindBySubjectIdAsync(subjectId, cancellationToken) ?? throw new InvalidOperationException("Subject was not found in the active HR directory.");
+        var length = Math.Clamp(10, _pinOptions.MinimumDigits, _pinOptions.MaximumDigits);
+        var builder = new StringBuilder(length);
+        for (var index = 0; index < length; index++) builder.Append(RandomNumberGenerator.GetInt32(10));
+        var pin = builder.ToString();
+        await pins.SetAsync(subjectId, pin, cancellationToken);
+        await AuditAsync(person, actor, "PinIssued", cancellationToken);
+        return pin;
+    }
 
-    public async Task ResetAuthenticatorAsync(string subjectId, CancellationToken cancellationToken)
+    public async Task UnlockPinAsync(string subjectId, string actor, CancellationToken cancellationToken)
+    {
+        var person = await hr.FindBySubjectIdAsync(subjectId, cancellationToken) ?? throw new InvalidOperationException("Subject was not found in the active HR directory.");
+        await pins.UnlockAsync(subjectId, cancellationToken);
+        await AuditAsync(person, actor, "PinUnlocked", cancellationToken);
+    }
+
+    public async Task ResetAuthenticatorAsync(string subjectId, string actor, CancellationToken cancellationToken)
     {
         var person = await hr.FindBySubjectIdAsync(subjectId, cancellationToken) ?? throw new InvalidOperationException("Subject was not found in the HR directory.");
         await totp.DisableAsync(person.ComputerNumber, cancellationToken);
+        await AuditAsync(person, actor, "AuthenticatorRevoked", cancellationToken);
     }
 
-    public async Task SetSelfServiceDisabledAsync(string subjectId, bool disabled, string reason, CancellationToken cancellationToken)
+    public async Task SetSelfServiceDisabledAsync(string subjectId, bool disabled, string reason, string actor, CancellationToken cancellationToken)
     {
+        var person = await hr.FindBySubjectIdAsync(subjectId, cancellationToken) ?? throw new InvalidOperationException("Subject was not found in the active HR directory.");
         var entity = await db.SelfServiceStatuses.SingleOrDefaultAsync(x => x.SubjectId == subjectId, cancellationToken);
         if (entity is null)
         {
@@ -48,10 +74,28 @@ public sealed class AdminIdentityService(
         entity.Disabled = disabled;
         entity.DisabledReason = disabled ? reason[..Math.Min(reason.Length, 200)] : string.Empty;
         entity.UpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
+        db.Audits.Add(BuildAudit(person, actor, disabled ? "SelfServiceDisabled" : "SelfServiceEnabled"));
         await db.SaveChangesAsync(cancellationToken);
     }
 
     public Task ApplyProfileAsync(string subjectId, string profileCode, string actor, CancellationToken cancellationToken) => provisioning.ApplyAdminProfileAsync(subjectId, profileCode, actor, cancellationToken);
+
+    private async Task AuditAsync(HrPersonRecord person, string actor, string detailCode, CancellationToken cancellationToken)
+    {
+        db.Audits.Add(BuildAudit(person, actor, detailCode));
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private AuditEntity BuildAudit(HrPersonRecord person, string actor, string detailCode)
+    {
+        var link = db.SubjectIdentities.Local.FirstOrDefault(x => x.SubjectId == person.SubjectId);
+        return new AuditEntity
+        {
+            Id = Guid.NewGuid(), CorrelationId = Guid.NewGuid().ToString("N"), TimestampUtc = timeProvider.GetUtcNow().UtcDateTime,
+            SubjectId = person.SubjectId, ComputerNumber = person.ComputerNumber, AccountName = link?.AdAccountName,
+            Actor = actor[..Math.Min(actor.Length, 256)], Category = "Administration", Outcome = "Success", DetailCode = detailCode
+        };
+    }
 }
 
 public sealed record AdminSubjectView(

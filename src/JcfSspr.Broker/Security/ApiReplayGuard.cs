@@ -16,6 +16,10 @@ public sealed class ApiReplayGuard(SecurityDbContext db, IOptions<BrokerSecurity
         var now = timeProvider.GetUtcNow();
         var window = TimeSpan.FromSeconds(Math.Clamp(options.Value.ApiReplayWindowSeconds, 30, 300));
         if ((now - timestamp).Duration() > window) return false;
+
+        var expired = await db.ApiReplayRequests.Where(x => x.ExpiresUtc <= now.UtcDateTime).Take(100).ToListAsync(cancellationToken);
+        if (expired.Count > 0) db.ApiReplayRequests.RemoveRange(expired);
+
         var key = clientId + ":" + requestId.ToLowerInvariant();
         if (await db.ApiReplayRequests.AsNoTracking().AnyAsync(x => x.RequestId == key, cancellationToken)) return false;
         db.ApiReplayRequests.Add(new ApiReplayEntity { RequestId = key, ExpiresUtc = now.Add(window).UtcDateTime });
