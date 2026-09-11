@@ -1,7 +1,7 @@
 name: security-build
 on:
   push:
-    branches: [ main, 'security/**' ]
+    branches: [ main, 'security/**', 'feature/**' ]
   pull_request:
     branches: [ main ]
 permissions:
@@ -16,6 +16,8 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Check repository for likely plaintext secrets
         run: python3 scripts/check-secrets.py
+      - name: Security architecture regression checks
+        run: python3 scripts/security-static-check.py
       - name: Restore
         run: |
           dotnet restore src/JcfSspr.Portal/JcfSspr.Portal.csproj
@@ -27,7 +29,7 @@ jobs:
           dotnet build src/JcfSspr.Broker/JcfSspr.Broker.csproj -c Release --no-restore
           dotnet build tests/JcfSspr.Tests/JcfSspr.Tests.csproj -c Release --no-restore
       - name: Test
-        run: dotnet test tests/JcfSspr.Tests/JcfSspr.Tests.csproj -c Release --no-build
+        run: dotnet test tests/JcfSspr.Tests/JcfSspr.Tests.csproj -c Release --no-build --logger "console;verbosity=normal"
       - name: Report vulnerable dependencies
         run: |
           dotnet list src/JcfSspr.Portal/JcfSspr.Portal.csproj package --vulnerable --include-transitive
