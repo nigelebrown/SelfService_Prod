@@ -8,13 +8,14 @@ namespace JcfSspr.Broker.Services;
 public sealed class RetentionWorker(IServiceScopeFactory scopeFactory, IOptions<RetentionOptions> options, TimeProvider timeProvider, ILogger<RetentionWorker> logger) : BackgroundService
 {
     private readonly RetentionOptions _options = options.Value;
+    private static readonly Action<ILogger, Exception?> SweepFailed = LoggerMessage.Define(LogLevel.Error, new EventId(2502, "RetentionSweepFailed"), "Identity transient-data retention sweep failed.");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
             try { await SweepAsync(stoppingToken); }
-            catch (Exception ex) { logger.LogError(ex, "Identity transient-data retention sweep failed."); }
+            catch (Exception ex) { SweepFailed(logger, ex); }
             await Task.Delay(TimeSpan.FromMinutes(Math.Clamp(_options.SweepMinutes, 5, 1440)), stoppingToken);
         }
     }

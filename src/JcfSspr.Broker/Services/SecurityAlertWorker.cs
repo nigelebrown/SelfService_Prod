@@ -8,13 +8,14 @@ namespace JcfSspr.Broker.Services;
 public sealed class SecurityAlertWorker(IServiceScopeFactory scopeFactory, IOptions<SecurityAlertOptions> options, TimeProvider timeProvider, ILogger<SecurityAlertWorker> logger) : BackgroundService
 {
     private readonly SecurityAlertOptions _options = options.Value;
+    private static readonly Action<ILogger, Exception?> WorkerFailed = LoggerMessage.Define(LogLevel.Error, new EventId(2501, "SecurityAlertWorkerFailed"), "Identity security alert worker failed.");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
             try { if (_options.Enabled) await DeliverAsync(stoppingToken); }
-            catch (Exception ex) { logger.LogError(ex, "Identity security alert worker failed."); }
+            catch (Exception ex) { WorkerFailed(logger, ex); }
             await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(_options.PollSeconds, 10, 300)), stoppingToken);
         }
     }

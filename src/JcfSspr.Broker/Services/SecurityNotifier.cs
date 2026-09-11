@@ -10,6 +10,8 @@ public sealed class SecurityNotifier(IOptions<NotificationOptions> options, IOpt
     private readonly NotificationOptions _options = options.Value;
     private readonly SecurityAlertOptions _alerts = alertOptions.Value;
     private static readonly Action<ILogger, string, Exception?> NotificationFailed = LoggerMessage.Define<string>(LogLevel.Warning, new EventId(2101, "PostResetNotificationFailed"), "Post-reset notification failed for account {AccountName}");
+    private static readonly Action<ILogger, string, string, string?, string?, string, Exception?> SecurityEvent = LoggerMessage.Define<string, string, string?, string?, string>(LogLevel.Warning, new EventId(2102, "IdentitySecurityEvent"), "Identity security event {DetailCode}; outcome {Outcome}; actor {Actor}; subject {SubjectId}; correlation {CorrelationId}");
+    private static readonly Action<ILogger, Guid, Exception?> SecurityDeliveryFailed = LoggerMessage.Define<Guid>(LogLevel.Error, new EventId(2103, "IdentitySecurityAlertDeliveryFailed"), "Security alert delivery failed for audit event {AuditId}");
 
     public async Task NotifyResetAsync(MemberRecord member, DateTimeOffset timestamp, CancellationToken cancellationToken)
     {
@@ -29,7 +31,7 @@ public sealed class SecurityNotifier(IOptions<NotificationOptions> options, IOpt
 
     public async Task<bool> NotifySecurityEventAsync(AuditEntity audit, CancellationToken cancellationToken)
     {
-        logger.LogWarning("Identity security event {DetailCode}; outcome {Outcome}; actor {Actor}; subject {SubjectId}; correlation {CorrelationId}", audit.DetailCode, audit.Outcome, audit.Actor, audit.SubjectId, audit.CorrelationId);
+        SecurityEvent(logger, audit.DetailCode, audit.Outcome, audit.Actor, audit.SubjectId, audit.CorrelationId, null);
         if (!_alerts.Enabled) return true;
         if (!_options.Enabled || string.IsNullOrWhiteSpace(_options.Host) || _alerts.Recipients.Length == 0) return false;
         try
@@ -42,7 +44,7 @@ public sealed class SecurityNotifier(IOptions<NotificationOptions> options, IOpt
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Security alert delivery failed for audit event {AuditId}", audit.Id);
+            SecurityDeliveryFailed(logger, audit.Id, ex);
             return false;
         }
     }

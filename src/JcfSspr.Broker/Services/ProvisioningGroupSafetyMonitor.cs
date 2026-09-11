@@ -21,6 +21,9 @@ public sealed class ProvisioningGroupSafetyMonitor(
 {
     private readonly DirectoryOptions _directory = directoryOptions.Value;
     private readonly ProvisioningOptions _provisioning = provisioningOptions.Value;
+    private static readonly Action<ILogger, string, Exception?> UnsafeGroup = LoggerMessage.Define<string>(LogLevel.Critical, new EventId(2503, "UnsafeProvisioningGroup"), "Provisioning group {GroupDn} is blocked or nested under a blocked privileged group.");
+    private static readonly Action<ILogger, string, Exception?> GroupValidationFailed = LoggerMessage.Define<string>(LogLevel.Error, new EventId(2504, "ProvisioningGroupValidationFailed"), "Could not validate provisioning group safety for {GroupDn}; provisioning through this group is fail-closed.");
+    private static readonly Action<ILogger, Exception?> DirectoryValidationFailed = LoggerMessage.Define(LogLevel.Error, new EventId(2505, "ProvisioningDirectoryValidationFailed"), "Could not connect to Active Directory for provisioning group safety validation; group provisioning is fail-closed.");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -45,21 +48,21 @@ public sealed class ProvisioningGroupSafetyMonitor(
                     if (HasBlockedAncestor(connection, group))
                     {
                         ProvisioningGroupSafetyRegistry.MarkUnsafe(group);
-                        logger.LogCritical("Provisioning group {GroupDn} is blocked or nested under a blocked privileged group.", group);
+                        UnsafeGroup(logger, group, null);
                     }
                     else ProvisioningGroupSafetyRegistry.MarkSafe(group, timeProvider.GetUtcNow().UtcDateTime);
                 }
                 catch (Exception ex)
                 {
                     ProvisioningGroupSafetyRegistry.MarkUnsafe(group);
-                    logger.LogError(ex, "Could not validate provisioning group safety for {GroupDn}; provisioning through this group is fail-closed.", group);
+                    GroupValidationFailed(logger, group, ex);
                 }
             }
         }
         catch (Exception ex)
         {
             foreach (var group in groups) ProvisioningGroupSafetyRegistry.MarkUnsafe(group);
-            logger.LogError(ex, "Could not connect to Active Directory for provisioning group safety validation; group provisioning is fail-closed.");
+            DirectoryValidationFailed(logger, ex);
         }
     }
 
