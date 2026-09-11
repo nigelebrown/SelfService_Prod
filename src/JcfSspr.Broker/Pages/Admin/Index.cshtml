@@ -1,14 +1,18 @@
 @page
 @model JcfSspr.Broker.Pages.Admin.IndexModel
 @{ ViewData["Title"] = "Administration"; }
-<section class="card"><h1>Identity Recovery Administration</h1><p>Search an employee using an employee ID, computer number, regulation number, username, or email address. Secrets are never retrievable from this console.</p>
-@if (!string.IsNullOrWhiteSpace(Model.StatusMessage)) { <div class="alert">@Model.StatusMessage</div> }
-@if (!string.IsNullOrWhiteSpace(Model.IssuedPin)) { <div class="alert pin-once"><strong>One-time PIN display:</strong> <code>@Model.IssuedPin</code><br/><span>Give this securely to the verified member now. It will not be shown again after leaving this response.</span></div> }
-<form method="post"><label asp-for="Identifier">Find employee</label><input asp-for="Identifier" autocomplete="off" /><button asp-page-handler="Search" type="submit">Search</button></form>
-@if (Model.Subject is not null)
-{
-<hr/><div class="profile-admin">@if (!string.IsNullOrWhiteSpace(Model.Subject.PhotoDataUri)){<img class="admin-photo" src="@Model.Subject.PhotoDataUri" alt="Employee profile photograph"/>}<div><h2>@Model.Subject.DisplayName</h2><dl><dt>Subject ID</dt><dd>@Model.Subject.SubjectId</dd><dt>Computer number</dt><dd>@Model.Subject.ComputerNumber</dd><dt>Regulation number</dt><dd>@Model.Subject.RegulationNumber</dd><dt>Email</dt><dd>@Model.Subject.EmailAddress</dd><dt>Employment</dt><dd>@Model.Subject.EmploymentStatus</dd><dt>AD account</dt><dd>@Model.Subject.AdAccountName</dd><dt>Provisioning state</dt><dd>@Model.Subject.ProvisioningState</dd><dt>Authenticator</dt><dd>@(Model.Subject.AuthenticatorEnrolled ? "Enrolled" : "Not enrolled")</dd><dt>PIN</dt><dd>@(Model.Subject.PinLocked ? $"Locked ({Model.Subject.PinFailedAttempts} failed attempts)" : Model.Subject.PinEnrolled ? "Active" : "Not enrolled")</dd><dt>Self-service</dt><dd>@(Model.Subject.SelfServiceDisabled ? "Disabled" : "Enabled")</dd><dt>Open reviews</dt><dd>@Model.Subject.PendingReviews</dd></dl></div></div>
-<form method="post" class="actions"><input asp-for="SubjectId" type="hidden" value="@Model.Subject.SubjectId"/><button asp-page-handler="IssuePin" type="submit">Issue / replace secure PIN</button><button asp-page-handler="UnlockPin" type="submit">Unlock PIN method</button><button asp-page-handler="ResetAuthenticator" type="submit">Reset authenticator</button>@if(Model.Subject.SelfServiceDisabled){<button asp-page-handler="EnableSelfService" type="submit">Enable self-service</button>}else{<button asp-page-handler="DisableSelfService" type="submit">Disable self-service</button>}</form>
-<form method="post" class="actions"><input asp-for="SubjectId" type="hidden" value="@Model.Subject.SubjectId"/><label asp-for="ProfileCode">Approved provisioning profile</label><select asp-for="ProfileCode"><option value="">Select profile</option>@foreach(var p in Model.Profiles){<option value="@p.Code">@p.Name (@p.Code)</option>}</select><button asp-page-handler="ApplyProfile" type="submit">Apply profile / OU and groups</button></form>
-}
+<section class="card">
+<h1>Identity Recovery Administration</h1>
+<p>Access is inherited from approved Active Directory security groups. Actions are separated by administrative role and are audited.</p>
+<div class="admin-grid">
+@if(Model.CanHelpdesk){<a class="admin-tile" asp-page="/Admin/Support"><strong>Member support</strong><span>Unlock PIN and reset authenticator enrollment</span></a><a class="admin-tile" asp-page="/Admin/AssistedRegistration"><strong>Assisted registration</strong><span>Verified member privately chooses a PIN</span></a>}
+@if(Model.CanProvision){<a class="admin-tile" asp-page="/Admin/Provisioning"><strong>Provisioning</strong><span>Apply approved OU/group profiles</span></a><a class="admin-tile" asp-page="/Admin/Reviews"><strong>Review queue</strong><span>Resolve directory identity conflicts safely</span></a>}
+@if(Model.CanSecurity){<a class="admin-tile" asp-page="/Admin/Security"><strong>Security controls</strong><span>Enable or disable member self-service</span></a>}
+@if(Model.CanAudit){<a class="admin-tile" asp-page="/Admin/Audit"><strong>Audit history</strong><span>Search administrative and recovery events</span></a>}
+@if(Model.CanPlatform){<a class="admin-tile" asp-page="/Admin/BreakGlass"><strong>Break-glass account</strong><span>Platform-admin-only emergency credential custody</span></a>}
+</div>
+<hr/>
+<h2>Read-only member lookup</h2>
+<form method="post"><label asp-for="Identifier">Employee ID, computer number, regulation number, username or email</label><input asp-for="Identifier" autocomplete="off"/><button asp-page-handler="Search" type="submit">Search</button></form>
+@if(Model.Subject is not null){<div class="profile-admin"><div>@if(!string.IsNullOrWhiteSpace(Model.Subject.PhotoDataUri)){<img class="admin-photo" src="@Model.Subject.PhotoDataUri" alt="Employee profile photograph"/>}</div><div><h2>@Model.Subject.DisplayName</h2><dl><dt>Computer number</dt><dd>@Model.Subject.ComputerNumber</dd><dt>Regulation number</dt><dd>@Model.Subject.RegulationNumber</dd><dt>Email</dt><dd>@Model.Subject.EmailAddress</dd><dt>AD account</dt><dd>@Model.Subject.AdAccountName</dd><dt>Provisioning</dt><dd>@Model.Subject.ProvisioningState</dd><dt>Authenticator</dt><dd>@(Model.Subject.AuthenticatorEnrolled?"Enrolled":"Not enrolled")</dd><dt>PIN</dt><dd>@(Model.Subject.PinLocked?"Locked":Model.Subject.PinEnrolled?"Active":"Not enrolled")</dd><dt>Self-service</dt><dd>@(Model.Subject.SelfServiceDisabled?"Disabled":"Enabled")</dd><dt>Open reviews</dt><dd>@Model.Subject.PendingReviews</dd></dl></div></div>}
 </section>

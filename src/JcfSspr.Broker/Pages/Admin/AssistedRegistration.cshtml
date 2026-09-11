@@ -1,0 +1,11 @@
+@page
+@model JcfSspr.Broker.Pages.Admin.AssistedRegistrationModel
+@{ ViewData["Title"] = "Assisted registration"; }
+<section class="card">
+<h1>Admin-assisted registration</h1>
+<p>The administrator first verifies the member against the HR photograph/profile. The member then types their own PIN privately. The PIN is never displayed back, logged, or stored in plaintext.</p>
+@if(!string.IsNullOrWhiteSpace(Model.StatusMessage)){<div class="alert" role="status">@Model.StatusMessage</div>}
+<form method="post"><label asp-for="Identifier">Find member</label><input asp-for="Identifier" autocomplete="off"/><button asp-page-handler="Search" type="submit">Find member</button></form>
+@if(Model.Subject is not null){<hr/><div class="profile-admin">@if(!string.IsNullOrWhiteSpace(Model.Subject.PhotoDataUri)){<img class="admin-photo" src="@Model.Subject.PhotoDataUri" alt="Employee profile photograph"/>}<div><h2>@Model.Subject.DisplayName</h2><dl><dt>Computer number</dt><dd>@Model.Subject.ComputerNumber</dd><dt>Regulation number</dt><dd>@Model.Subject.RegulationNumber</dd><dt>Email</dt><dd>@Model.Subject.EmailAddress</dd><dt>Employment</dt><dd>@Model.Subject.EmploymentStatus</dd></dl></div></div>
+<form method="post" class="member-secret-entry" autocomplete="off"><input asp-for="SubjectId" type="hidden" value="@Model.Subject.SubjectId"/><label asp-for="SupportReference">Support / visit reference</label><input asp-for="SupportReference" autocomplete="off" maxlength="100"/><label><input asp-for="MemberPresentAndVerified" type="checkbox" class="check"/> I have verified the member in person against the HR photograph/profile.</label><div class="privacy-box"><strong>Member private entry</strong><p>Allow the member to enter the PIN without the administrator observing it. Use 8–12 digits and do not reuse a banking or other personal PIN.</p><label asp-for="Pin">Choose PIN</label><input asp-for="Pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12"/><label asp-for="ConfirmPin">Confirm PIN</label><input asp-for="ConfirmPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12"/></div><button asp-page-handler="Register" type="submit">Register PIN securely</button></form>}
+</section>

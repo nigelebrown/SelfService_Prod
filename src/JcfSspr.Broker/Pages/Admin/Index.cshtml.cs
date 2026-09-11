@@ -1,68 +1,36 @@
-using JcfSspr.Broker.Options;
 using JcfSspr.Broker.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.Extensions.Options;
 
 namespace JcfSspr.Broker.Pages.Admin;
 
-public sealed class IndexModel(AdminIdentityService admin, IOptions<ProvisioningOptions> provisioning) : PageModel
+[Authorize(Policy = "IdentityAdmin")]
+public sealed class IndexModel(AdminIdentityService admin, IAuthorizationService authorization) : PageModel
 {
     [BindProperty] public string Identifier { get; set; } = string.Empty;
-    [BindProperty] public string SubjectId { get; set; } = string.Empty;
-    [BindProperty] public string ProfileCode { get; set; } = string.Empty;
     public AdminSubjectView? Subject { get; private set; }
-    public string StatusMessage { get; private set; } = string.Empty;
-    public string IssuedPin { get; private set; } = string.Empty;
-    public IReadOnlyList<ProvisioningProfileOptions> Profiles { get; } = provisioning.Value.Profiles.Where(x => x.Enabled).ToArray();
+    public bool CanHelpdesk { get; private set; }
+    public bool CanProvision { get; private set; }
+    public bool CanSecurity { get; private set; }
+    public bool CanAudit { get; private set; }
+    public bool CanPlatform { get; private set; }
 
-    public void OnGet() { }
+    public async Task OnGetAsync() => await LoadPermissionsAsync();
 
     public async Task<IActionResult> OnPostSearchAsync(CancellationToken ct)
     {
-        await LoadAsync(Identifier, ct);
-        if (Subject is null) StatusMessage = "No unique active employee profile was found.";
+        await LoadPermissionsAsync();
+        Subject = await admin.FindAsync(Identifier, ct);
         return Page();
     }
 
-    public async Task<IActionResult> OnPostIssuePinAsync(CancellationToken ct)
+    private async Task LoadPermissionsAsync()
     {
-        IssuedPin = await admin.IssuePinAsync(SubjectId, Actor, ct);
-        StatusMessage = "A new secure PIN was issued. It is shown below once and cannot be retrieved later.";
-        await LoadSubjectAsync(SubjectId, ct);
-        return Page();
-    }
-
-    public async Task<IActionResult> OnPostUnlockPinAsync(CancellationToken ct)
-    {
-        await admin.UnlockPinAsync(SubjectId, Actor, ct); StatusMessage = "PIN method unlocked."; await LoadSubjectAsync(SubjectId, ct); return Page();
-    }
-
-    public async Task<IActionResult> OnPostResetAuthenticatorAsync(CancellationToken ct)
-    {
-        await admin.ResetAuthenticatorAsync(SubjectId, Actor, ct); StatusMessage = "Authenticator enrollment revoked. The member must register again."; await LoadSubjectAsync(SubjectId, ct); return Page();
-    }
-
-    public async Task<IActionResult> OnPostEnableSelfServiceAsync(CancellationToken ct)
-    {
-        await admin.SetSelfServiceDisabledAsync(SubjectId, false, string.Empty, Actor, ct); StatusMessage = "Self-service enabled."; await LoadSubjectAsync(SubjectId, ct); return Page();
-    }
-
-    public async Task<IActionResult> OnPostDisableSelfServiceAsync(CancellationToken ct)
-    {
-        await admin.SetSelfServiceDisabledAsync(SubjectId, true, "Disabled by administrator", Actor, ct); StatusMessage = "Self-service disabled."; await LoadSubjectAsync(SubjectId, ct); return Page();
-    }
-
-    public async Task<IActionResult> OnPostApplyProfileAsync(CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(ProfileCode)) { StatusMessage = "Select a provisioning profile."; await LoadSubjectAsync(SubjectId, ct); return Page(); }
-        await admin.ApplyProfileAsync(SubjectId, ProfileCode, Actor, ct); StatusMessage = "Provisioning profile applied."; await LoadSubjectAsync(SubjectId, ct); return Page();
-    }
-
-    private string Actor => User.Identity?.Name ?? "unknown";
-    private async Task LoadAsync(string identifier, CancellationToken ct) => Subject = await admin.FindAsync(identifier, ct);
-    private async Task LoadSubjectAsync(string subjectId, CancellationToken ct)
-    {
-        Subject = await admin.FindAsync(subjectId, ct); Identifier = subjectId;
+        CanHelpdesk = (await authorization.AuthorizeAsync(User, "Helpdesk")).Succeeded;
+        CanProvision = (await authorization.AuthorizeAsync(User, "ProvisioningAdmin")).Succeeded;
+        CanSecurity = (await authorization.AuthorizeAsync(User, "SecurityAdmin")).Succeeded;
+        CanAudit = (await authorization.AuthorizeAsync(User, "AuditReader")).Succeeded;
+        CanPlatform = (await authorization.AuthorizeAsync(User, "DirectoryAdminOnly")).Succeeded;
     }
 }
