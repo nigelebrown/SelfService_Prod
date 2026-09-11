@@ -159,7 +159,7 @@ public sealed class LocalAdminService(
         await db.SaveChangesAsync(ct);
     }
 
-    private AuditEntity AdminAudit(string actor, string detailCode, DateTime now) => new()
+    private static AuditEntity AdminAudit(string actor, string detailCode, DateTime now) => new()
     {
         Id = Guid.NewGuid(), CorrelationId = Guid.NewGuid().ToString("N"), TimestampUtc = now,
         Actor = actor, Category = "Administration", Outcome = "Success", DetailCode = detailCode
