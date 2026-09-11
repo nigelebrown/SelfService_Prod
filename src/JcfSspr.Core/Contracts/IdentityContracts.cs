@@ -53,19 +53,17 @@ public sealed class IdentityVerificationResponse
     };
 }
 
-public sealed class IdentityProfileRequest
+public sealed class ProfileConfirmationRequest
 {
     public string TransactionToken { get; set; } = string.Empty;
     public string ClientIp { get; set; } = string.Empty;
-    public override string ToString() => "IdentityProfileRequest [REDACTED]";
+    public override string ToString() => "ProfileConfirmationRequest [REDACTED]";
 }
 
-public sealed class IdentityProfileResponse
+public sealed class ProfileConfirmationResponse
 {
     public bool Success { get; init; }
     public string Message { get; init; } = string.Empty;
-    public IdentityProfile? Profile { get; init; }
-    public bool AuthenticatorEnrollmentRequired { get; init; }
 }
 
 public sealed class TotpEnrollmentStartRequest

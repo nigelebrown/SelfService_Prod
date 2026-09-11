@@ -76,6 +76,7 @@ public sealed class ResetTransactionEntity
     public Guid ObjectGuid { get; set; }
     public string SourceIp { get; set; } = string.Empty;
     public string ClientCertificateId { get; set; } = string.Empty;
+    public bool ProfileConfirmed { get; set; }
     public bool RequiresTotpEnrollment { get; set; }
     public DateTime ExpiresUtc { get; set; }
     public DateTime? UsedUtc { get; set; }

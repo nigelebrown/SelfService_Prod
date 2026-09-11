@@ -111,6 +111,7 @@ BEGIN
         ObjectGuid uniqueidentifier NOT NULL,
         SourceIp nvarchar(64) NOT NULL,
         ClientCertificateId nvarchar(128) NOT NULL,
+        ProfileConfirmed bit NOT NULL CONSTRAINT DF_IdentityResetTransaction_ProfileConfirmed DEFAULT(0),
         RequiresTotpEnrollment bit NOT NULL CONSTRAINT DF_IdentityResetTransaction_Totp DEFAULT(0),
         ExpiresUtc datetime2(0) NOT NULL,
         UsedUtc datetime2(0) NULL,

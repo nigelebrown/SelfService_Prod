@@ -17,7 +17,7 @@ public sealed class ResetTransactionService(SecurityDbContext db, TimeProvider t
         {
             TokenHash = SHA256.HashData(tokenBytes), SubjectId = subjectId, ComputerNumber = member.ComputerNumber,
             AccountName = member.AdAccountName, ObjectGuid = member.AdObjectGuid, SourceIp = sourceIp,
-            ClientCertificateId = clientCertificateId, RequiresTotpEnrollment = requiresTotpEnrollment,
+            ClientCertificateId = clientCertificateId, ProfileConfirmed = false, RequiresTotpEnrollment = requiresTotpEnrollment,
             ExpiresUtc = timeProvider.GetUtcNow().AddMinutes(5).UtcDateTime
         });
         await db.SaveChangesAsync(ct);
@@ -34,6 +34,12 @@ public sealed class ResetTransactionService(SecurityDbContext db, TimeProvider t
         if (transaction is null || transaction.UsedUtc is not null || transaction.ExpiresUtc <= now || transaction.PasswordAttempts >= 5) return null;
         if (!transaction.SourceIp.Equals(sourceIp, StringComparison.OrdinalIgnoreCase) || !transaction.ClientCertificateId.Equals(clientCertificateId, StringComparison.OrdinalIgnoreCase)) return null;
         return transaction;
+    }
+
+    public async Task MarkProfileConfirmedAsync(ResetTransactionEntity transaction, CancellationToken ct)
+    {
+        transaction.ProfileConfirmed = true;
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task MarkTotpEnrollmentCompleteAsync(ResetTransactionEntity transaction, CancellationToken ct)

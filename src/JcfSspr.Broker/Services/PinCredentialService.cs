@@ -13,7 +13,7 @@ public sealed class PinCredentialService(SecurityDbContext db, IOptions<PinSecur
 
     public async Task<PinVerificationResult> VerifyAsync(string subjectId, string pin, CancellationToken cancellationToken)
     {
-        var credential = await db.PinCredentials.SingleOrDefaultAsync(x => x.SubjectId == subjectId, cancellationToken);
+        var credential = await db.PinCredentials.AsNoTracking().SingleOrDefaultAsync(x => x.SubjectId == subjectId, cancellationToken);
         if (credential is null || !credential.Enabled) return PinVerificationResult.NotEnrolled;
         if (credential.Locked) return PinVerificationResult.Locked;
         var pepper = LoadPepper();
@@ -21,25 +21,23 @@ public sealed class PinCredentialService(SecurityDbContext db, IOptions<PinSecur
         try { valid = PinHasher.Verify(pin, credential.Salt, pepper, credential.Iterations, credential.Verifier); }
         finally { CryptographicOperations.ZeroMemory(pepper); }
 
+        var now = timeProvider.GetUtcNow().UtcDateTime;
         if (valid)
         {
-            credential.FailedAttempts = 0;
-            credential.Locked = false;
-            credential.LockedUtc = null;
-            credential.UpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
-            await db.SaveChangesAsync(cancellationToken);
-            return PinVerificationResult.Success;
+            var updated = await db.PinCredentials.Where(x => x.SubjectId == subjectId && x.Enabled && !x.Locked).ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.FailedAttempts, 0)
+                .SetProperty(x => x.LockedUtc, (DateTime?)null)
+                .SetProperty(x => x.UpdatedUtc, now), cancellationToken);
+            return updated == 1 ? PinVerificationResult.Success : PinVerificationResult.Locked;
         }
 
-        credential.FailedAttempts++;
-        if (credential.FailedAttempts >= _options.LockAfterFailures)
-        {
-            credential.Locked = true;
-            credential.LockedUtc = timeProvider.GetUtcNow().UtcDateTime;
-        }
-        credential.UpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
-        await db.SaveChangesAsync(cancellationToken);
-        return credential.Locked ? PinVerificationResult.Locked : PinVerificationResult.Failed;
+        await db.PinCredentials.Where(x => x.SubjectId == subjectId && x.Enabled && !x.Locked).ExecuteUpdateAsync(setters => setters
+            .SetProperty(x => x.FailedAttempts, x => x.FailedAttempts + 1)
+            .SetProperty(x => x.Locked, x => x.FailedAttempts + 1 >= _options.LockAfterFailures)
+            .SetProperty(x => x.LockedUtc, x => x.FailedAttempts + 1 >= _options.LockAfterFailures ? now : x.LockedUtc)
+            .SetProperty(x => x.UpdatedUtc, now), cancellationToken);
+        var latest = await db.PinCredentials.AsNoTracking().SingleOrDefaultAsync(x => x.SubjectId == subjectId, cancellationToken);
+        return latest?.Locked == true ? PinVerificationResult.Locked : PinVerificationResult.Failed;
     }
 
     public async Task SetAsync(string subjectId, string pin, CancellationToken cancellationToken)
@@ -70,13 +68,11 @@ public sealed class PinCredentialService(SecurityDbContext db, IOptions<PinSecur
 
     public async Task UnlockAsync(string subjectId, CancellationToken cancellationToken)
     {
-        var entity = await db.PinCredentials.SingleOrDefaultAsync(x => x.SubjectId == subjectId, cancellationToken);
-        if (entity is null) return;
-        entity.FailedAttempts = 0;
-        entity.Locked = false;
-        entity.LockedUtc = null;
-        entity.UpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
-        await db.SaveChangesAsync(cancellationToken);
+        await db.PinCredentials.Where(x => x.SubjectId == subjectId).ExecuteUpdateAsync(setters => setters
+            .SetProperty(x => x.FailedAttempts, 0)
+            .SetProperty(x => x.Locked, false)
+            .SetProperty(x => x.LockedUtc, (DateTime?)null)
+            .SetProperty(x => x.UpdatedUtc, timeProvider.GetUtcNow().UtcDateTime), cancellationToken);
     }
 
     private byte[] LoadPepper()
