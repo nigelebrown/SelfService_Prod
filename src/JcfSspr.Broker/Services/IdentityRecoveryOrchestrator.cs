@@ -107,7 +107,7 @@ public sealed class IdentityRecoveryOrchestrator(
                 AuthenticatorEnrollmentRequired = requireEnrollment,
                 CorrelationId = correlationId,
                 TransactionToken = token,
-                Message = requireEnrollment ? "Identity verified. Register an authenticator before completing account recovery." : "Identity verified.",
+                Message = requireEnrollment ? "Identity verified. Confirm your profile, then register an authenticator before completing account recovery." : "Identity verified. Confirm your profile to continue.",
                 Profile = BuildProfile(person, resolution.State, enrolled)
             };
         }
@@ -123,10 +123,29 @@ public sealed class IdentityRecoveryOrchestrator(
         }
     }
 
+    public async Task<ProfileConfirmationResponse> ConfirmProfileAsync(ProfileConfirmationRequest request, string clientCertificateId, CancellationToken ct)
+    {
+        var sourceIp = Sanitize(request.ClientIp);
+        try
+        {
+            var transaction = await transactions.GetUsableAsync(request.TransactionToken, sourceIp, clientCertificateId, ct);
+            if (transaction is null || string.IsNullOrWhiteSpace(transaction.SubjectId)) return new ProfileConfirmationResponse { Message = "This recovery session is no longer valid." };
+            var person = await hr.FindBySubjectIdAsync(transaction.SubjectId, ct);
+            if (person is null) return new ProfileConfirmationResponse { Message = "This recovery session is no longer valid." };
+            await transactions.MarkProfileConfirmedAsync(transaction, ct);
+            await audit.WriteAsync(Guid.NewGuid().ToString("N"), person.ComputerNumber, transaction.AccountName, sourceIp, "Success", "ProfileConfirmed", ct);
+            return new ProfileConfirmationResponse { Success = true, Message = "Profile confirmed." };
+        }
+        finally
+        {
+            request.TransactionToken = string.Empty;
+        }
+    }
+
     public async Task<TotpEnrollmentStartResponse> StartAuthenticatorEnrollmentAsync(TotpEnrollmentStartRequest request, string clientCertificateId, CancellationToken ct)
     {
         var transaction = await transactions.GetUsableAsync(request.TransactionToken, Sanitize(request.ClientIp), clientCertificateId, ct);
-        if (transaction is null || string.IsNullOrWhiteSpace(transaction.SubjectId)) return new TotpEnrollmentStartResponse { Message = "This registration session is no longer valid." };
+        if (transaction is null || !transaction.ProfileConfirmed || string.IsNullOrWhiteSpace(transaction.SubjectId)) return new TotpEnrollmentStartResponse { Message = "This registration session is no longer valid or the profile has not been confirmed." };
         var person = await hr.FindBySubjectIdAsync(transaction.SubjectId, ct);
         if (person is null) return new TotpEnrollmentStartResponse { Message = "This registration session is no longer valid." };
         var member = MemberFromTransaction(person, transaction);
@@ -137,7 +156,7 @@ public sealed class IdentityRecoveryOrchestrator(
     public async Task<TotpEnrollmentConfirmResponse> ConfirmAuthenticatorEnrollmentAsync(TotpEnrollmentConfirmRequest request, string clientCertificateId, CancellationToken ct)
     {
         var transaction = await transactions.GetUsableAsync(request.TransactionToken, Sanitize(request.ClientIp), clientCertificateId, ct);
-        if (transaction is null) return new TotpEnrollmentConfirmResponse { Message = "This registration session is no longer valid." };
+        if (transaction is null || !transaction.ProfileConfirmed) return new TotpEnrollmentConfirmResponse { Message = "This registration session is no longer valid or the profile has not been confirmed." };
         try
         {
             var codes = await totp.ConfirmAsync(request.ProtectedState, request.Code, transaction.AccountName, ct);
@@ -163,6 +182,7 @@ public sealed class IdentityRecoveryOrchestrator(
         {
             var transaction = await transactions.GetUsableAsync(request.TransactionToken, sourceIp, clientCertificateId, ct);
             if (transaction is null) return ResetResponse.Rejected(correlationId, "This reset session has expired or is no longer valid. Start again.");
+            if (!transaction.ProfileConfirmed) return ResetResponse.Rejected(correlationId, "Confirm the verified profile before completing this reset.");
             if (transaction.RequiresTotpEnrollment) return ResetResponse.Rejected(correlationId, "Register your authenticator before completing this reset.");
             await transactions.IncrementAttemptAsync(transaction, ct);
             var person = string.IsNullOrWhiteSpace(transaction.SubjectId) ? null : await hr.FindBySubjectIdAsync(transaction.SubjectId, ct);

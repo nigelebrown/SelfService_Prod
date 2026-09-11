@@ -10,6 +10,9 @@ public sealed class BrokerClient(HttpClient httpClient, ILogger<BrokerClient> lo
     public Task<IdentityVerificationResponse> VerifyIdentityAsync(IdentityVerificationRequest request, CancellationToken ct) =>
         PostAsync("api/v1/identity/verify", request, () => IdentityVerificationResponse.Rejected(Guid.NewGuid().ToString("N"), "The identity service is temporarily unavailable."), "identity-verify", ct);
 
+    public Task<ProfileConfirmationResponse> ConfirmProfileAsync(ProfileConfirmationRequest request, CancellationToken ct) =>
+        PostAsync("api/v1/identity/profile/confirm", request, () => new ProfileConfirmationResponse { Message = "The identity service is temporarily unavailable." }, "profile-confirm", ct);
+
     public Task<TotpEnrollmentStartResponse> StartEnrollmentAsync(TotpEnrollmentStartRequest request, CancellationToken ct) =>
         PostAsync("api/v1/identity/enroll/start", request, () => new TotpEnrollmentStartResponse { Message = "The identity service is temporarily unavailable." }, "enrollment-start", ct);
 

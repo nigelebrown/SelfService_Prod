@@ -39,7 +39,6 @@ builder.Services.AddAuthorization(options => options.AddPolicy("IdentityAdmin", 
     policy.RequireAssertion(context => context.User.Claims.Any(c => c.Type == ClaimTypes.GroupSid && adminSids.Contains(c.Value, StringComparer.OrdinalIgnoreCase)));
 }));
 builder.Services.AddRazorPages(options => options.Conventions.AuthorizeFolder("/Admin", "IdentityAdmin"));
-builder.Services.AddScoped<MemberDirectoryService>();
 builder.Services.AddScoped<HrIdentityDirectoryService>();
 builder.Services.AddScoped<PinCredentialService>();
 builder.Services.AddScoped<TotpEnrollmentService>();
@@ -50,7 +49,6 @@ builder.Services.AddScoped<ActiveDirectoryResetService>();
 builder.Services.AddScoped<ResetTransactionService>();
 builder.Services.AddScoped<SecurityNotifier>();
 builder.Services.AddScoped<AuditService>();
-builder.Services.AddScoped<ResetOrchestrator>();
 builder.Services.AddScoped<IdentityRecoveryOrchestrator>();
 builder.Services.AddScoped<AdminIdentityService>();
 builder.Services.AddScoped<ApiReplayGuard>();
@@ -82,6 +80,12 @@ app.MapPost("/api/v1/identity/verify", async (HttpContext context, IdentityVerif
     var clientId = await validator.GetValidatedClientIdAsync(context);
     if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
     return Results.Ok(await orchestrator.VerifyAsync(request, clientId, ct));
+}).AllowAnonymous();
+app.MapPost("/api/v1/identity/profile/confirm", async (HttpContext context, ProfileConfirmationRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
+{
+    var clientId = await validator.GetValidatedClientIdAsync(context);
+    if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
+    return Results.Ok(await orchestrator.ConfirmProfileAsync(request, clientId, ct));
 }).AllowAnonymous();
 app.MapPost("/api/v1/identity/enroll/start", async (HttpContext context, TotpEnrollmentStartRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
 {

@@ -23,7 +23,7 @@ public sealed class IndexModel(BrokerClient broker) : PageModel
         {
             Identifier = Input.Identifier.Trim(), Method = Input.Method, Secret = Input.Secret,
             Trn = Input.Trn.Trim(), DateOfBirth = Input.DateOfBirth, MiddleName = Input.MiddleName.Trim(),
-            ProvisioningCode = Input.ProvisioningCode.Trim(), ClientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"
+            ProvisioningCode = Input.ProvisioningCode.Trim(), ClientIp = ClientIp()
         }, cancellationToken);
         Input.Secret = string.Empty;
         Input.Trn = string.Empty;
@@ -38,10 +38,19 @@ public sealed class IndexModel(BrokerClient broker) : PageModel
         return Page();
     }
 
-    public IActionResult OnPostConfirm()
+    public async Task<IActionResult> OnPostConfirmAsync(CancellationToken cancellationToken)
     {
-        if (TempData.Peek("ResetTransaction") is not string) return RedirectToPage("/Index");
-        var enrollment = TempData.Peek("EnrollmentRequired") as bool? ?? false;
+        if (TempData.Peek("ResetTransaction") is not string token) return RedirectToPage("/Index");
+        var confirmation = await broker.ConfirmProfileAsync(new ProfileConfirmationRequest { TransactionToken = token, ClientIp = ClientIp() }, cancellationToken);
+        if (!confirmation.Success)
+        {
+            TempData.Remove("ResetTransaction");
+            TempData.Remove("EnrollmentRequired");
+            return RedirectToPage("/Index");
+        }
+        var enrollment = TempData.Peek("EnrollmentRequired") is bool required && required;
+        TempData.Keep("ResetTransaction");
+        TempData.Keep("EnrollmentRequired");
         return RedirectToPage(enrollment ? "/EnrollAuthenticator" : "/Reset");
     }
 
@@ -51,4 +60,6 @@ public sealed class IndexModel(BrokerClient broker) : PageModel
         TempData.Remove("EnrollmentRequired");
         return RedirectToPage("/Index");
     }
+
+    private string ClientIp() => HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 }
