@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using JcfSspr.Broker.Data;
 using JcfSspr.Broker.Options;
 using JcfSspr.Broker.Security;
@@ -12,6 +13,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<MemberDirectoryOptions>(builder.Configuration.GetSection("MemberDirectory"));
 builder.Services.Configure<DirectoryOptions>(builder.Configuration.GetSection("Directory"));
 builder.Services.Configure<BrokerSecurityOptions>(builder.Configuration.GetSection("BrokerSecurity"));
+builder.Services.Configure<PinSecurityOptions>(builder.Configuration.GetSection("PinSecurity"));
+builder.Services.Configure<AuthenticatorOptions>(builder.Configuration.GetSection("Authenticator"));
+builder.Services.Configure<ProvisioningOptions>(builder.Configuration.GetSection("Provisioning"));
+builder.Services.Configure<AdminAuthorizationOptions>(builder.Configuration.GetSection("AdminAuthorization"));
 builder.Services.Configure<JcfSspr.Broker.Options.DataProtectionOptions>(builder.Configuration.GetSection("DataProtection"));
 builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Notification"));
 builder.Services.Configure<PasswordPolicyOptions>(builder.Configuration.GetSection("PasswordPolicy"));
@@ -21,27 +26,39 @@ var securityConnection = builder.Configuration.GetConnectionString("SecurityStor
     ?? throw new InvalidOperationException("ConnectionStrings:SecurityStore is required.");
 builder.Services.AddDbContext<SecurityDbContext>(o => o.UseSqlServer(securityConnection));
 
-var keyPath = builder.Configuration["DataProtection:KeyPath"] ?? @"C:\ProgramData\JcfSspr\keys";
+var keyPath = builder.Configuration["DataProtection:KeyPath"] ?? @"C:\ProgramData\IdentityRecovery\keys";
 Directory.CreateDirectory(keyPath);
-var dataProtection = builder.Services.AddDataProtection().SetApplicationName("JcfSspr.Broker").PersistKeysToFileSystem(new DirectoryInfo(keyPath));
+var dataProtection = builder.Services.AddDataProtection().SetApplicationName("IdentityRecovery.Internal").PersistKeysToFileSystem(new DirectoryInfo(keyPath));
 if (OperatingSystem.IsWindows()) dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
 
+var adminSids = builder.Configuration.GetSection("AdminAuthorization:AllowedGroupSids").Get<string[]>() ?? [];
 builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
-builder.Services.AddAuthorization();
-builder.Services.AddRazorPages();
+builder.Services.AddAuthorization(options => options.AddPolicy("IdentityAdmin", policy =>
+{
+    policy.RequireAuthenticatedUser();
+    policy.RequireAssertion(context => context.User.Claims.Any(c => c.Type == ClaimTypes.GroupSid && adminSids.Contains(c.Value, StringComparer.OrdinalIgnoreCase)));
+}));
+builder.Services.AddRazorPages(options => options.Conventions.AuthorizeFolder("/Admin", "IdentityAdmin"));
 builder.Services.AddScoped<MemberDirectoryService>();
+builder.Services.AddScoped<HrIdentityDirectoryService>();
+builder.Services.AddScoped<PinCredentialService>();
 builder.Services.AddScoped<TotpEnrollmentService>();
 builder.Services.AddScoped<ThrottleService>();
+builder.Services.AddScoped<ProvisioningPolicyService>();
+builder.Services.AddScoped<DirectoryProvisioningService>();
 builder.Services.AddScoped<ActiveDirectoryResetService>();
 builder.Services.AddScoped<ResetTransactionService>();
 builder.Services.AddScoped<SecurityNotifier>();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<ResetOrchestrator>();
+builder.Services.AddScoped<IdentityRecoveryOrchestrator>();
+builder.Services.AddScoped<AdminIdentityService>();
+builder.Services.AddScoped<ApiReplayGuard>();
 builder.Services.AddSingleton<ClientCertificateValidator>();
 
-builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 16 * 1024);
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 32 * 1024);
 var app = builder.Build();
-ValidateProductionConfiguration(app);
+ValidateProductionConfiguration(app, adminSids);
 
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error"); app.UseHsts(); }
 app.UseHttpsRedirection();
@@ -60,24 +77,60 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapPost("/api/v1/verify", async (HttpContext context, VerificationRequest request, ClientCertificateValidator validator, ResetOrchestrator orchestrator, CancellationToken ct) =>
+app.MapPost("/api/v1/identity/verify", async (HttpContext context, IdentityVerificationRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
 {
     var clientId = await validator.GetValidatedClientIdAsync(context);
-    if (clientId is null) return Results.Unauthorized();
+    if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
     return Results.Ok(await orchestrator.VerifyAsync(request, clientId, ct));
 }).AllowAnonymous();
 
-app.MapPost("/api/v1/reset", async (HttpContext context, PasswordResetRequest request, ClientCertificateValidator validator, ResetOrchestrator orchestrator, CancellationToken ct) =>
+app.MapPost("/api/v1/identity/profile", async (HttpContext context, IdentityProfileRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
 {
     var clientId = await validator.GetValidatedClientIdAsync(context);
-    if (clientId is null) return Results.Unauthorized();
+    if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
+    return Results.Ok(await orchestrator.GetProfileAsync(request, clientId, ct));
+}).AllowAnonymous();
+
+app.MapPost("/api/v1/identity/enroll/start", async (HttpContext context, TotpEnrollmentStartRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
+{
+    var clientId = await validator.GetValidatedClientIdAsync(context);
+    if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
+    return Results.Ok(await orchestrator.StartAuthenticatorEnrollmentAsync(request, clientId, ct));
+}).AllowAnonymous();
+
+app.MapPost("/api/v1/identity/enroll/confirm", async (HttpContext context, TotpEnrollmentConfirmRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
+{
+    var clientId = await validator.GetValidatedClientIdAsync(context);
+    if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
+    return Results.Ok(await orchestrator.ConfirmAuthenticatorEnrollmentAsync(request, clientId, ct));
+}).AllowAnonymous();
+
+app.MapPost("/api/v1/identity/reset", async (HttpContext context, PasswordResetRequest request, ClientCertificateValidator validator, ApiReplayGuard replay, IdentityRecoveryOrchestrator orchestrator, CancellationToken ct) =>
+{
+    var clientId = await validator.GetValidatedClientIdAsync(context);
+    if (clientId is null || !await replay.AcceptAsync(context, clientId, ct)) return Results.Unauthorized();
     return Results.Ok(await orchestrator.ResetAsync(request, clientId, ct));
 }).AllowAnonymous();
+
+app.MapGet("/admin/api/subject", async (string identifier, AdminIdentityService admin, CancellationToken ct) =>
+{
+    var result = await admin.FindAsync(identifier, ct);
+    return result is null ? Results.NotFound() : Results.Ok(result);
+}).RequireAuthorization("IdentityAdmin");
+app.MapPost("/admin/api/{subjectId}/pin/unlock", (string subjectId, AdminIdentityService admin, CancellationToken ct) => admin.UnlockPinAsync(subjectId, ct)).RequireAuthorization("IdentityAdmin");
+app.MapPost("/admin/api/{subjectId}/authenticator/reset", (string subjectId, AdminIdentityService admin, CancellationToken ct) => admin.ResetAuthenticatorAsync(subjectId, ct)).RequireAuthorization("IdentityAdmin");
+app.MapPost("/admin/api/{subjectId}/profile/{profileCode}", async (HttpContext context, string subjectId, string profileCode, AdminIdentityService admin, CancellationToken ct) =>
+{
+    await admin.ApplyProfileAsync(subjectId, profileCode, context.User.Identity?.Name ?? "unknown", ct);
+    return Results.Ok();
+}).RequireAuthorization("IdentityAdmin");
+app.MapPost("/admin/api/{subjectId}/selfservice/enable", (string subjectId, AdminIdentityService admin, CancellationToken ct) => admin.SetSelfServiceDisabledAsync(subjectId, false, string.Empty, ct)).RequireAuthorization("IdentityAdmin");
+
 app.MapRazorPages();
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 app.Run();
 
-static void ValidateProductionConfiguration(WebApplication app)
+static void ValidateProductionConfiguration(WebApplication app, string[] adminSids)
 {
     if (!app.Environment.IsProduction()) return;
     var errors = new List<string>();
@@ -85,18 +138,22 @@ static void ValidateProductionConfiguration(WebApplication app)
     {
         var cs = app.Configuration.GetConnectionString(name) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(cs) || cs.Contains("REPLACE", StringComparison.OrdinalIgnoreCase)) errors.Add($"ConnectionStrings:{name} is not configured.");
-        if (cs.Contains("Password=", StringComparison.OrdinalIgnoreCase) || cs.Contains("Pwd=", StringComparison.OrdinalIgnoreCase)) errors.Add($"ConnectionStrings:{name} must use integrated authentication, not a SQL password.");
-        if (!cs.Contains("TrustServerCertificate=False", StringComparison.OrdinalIgnoreCase)) errors.Add($"ConnectionStrings:{name} must validate the SQL server certificate.");
+        if (cs.Contains("Password=", StringComparison.OrdinalIgnoreCase) || cs.Contains("Pwd=", StringComparison.OrdinalIgnoreCase)) errors.Add($"ConnectionStrings:{name} must use integrated authentication.");
+        if (!cs.Contains("TrustServerCertificate=False", StringComparison.OrdinalIgnoreCase)) errors.Add($"ConnectionStrings:{name} must validate the SQL certificate.");
     }
     var server = app.Configuration["Directory:Server"] ?? string.Empty;
     var baseDn = app.Configuration["Directory:BaseDn"] ?? string.Empty;
     if (server.Contains("REPLACE", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(server)) errors.Add("Directory:Server is not configured.");
-    if (!baseDn.StartsWith("OU=", StringComparison.OrdinalIgnoreCase)) errors.Add("Directory:BaseDn must be the member OU, not the domain root.");
+    if (!baseDn.StartsWith("OU=", StringComparison.OrdinalIgnoreCase) && !baseDn.StartsWith("DC=", StringComparison.OrdinalIgnoreCase)) errors.Add("Directory:BaseDn must be a valid search base.");
     var certs = app.Configuration.GetSection("BrokerSecurity:AllowedClientCertificateThumbprints").Get<string[]>() ?? [];
     if (certs.Length == 0 || certs.Any(x => x.Contains("REPLACE", StringComparison.OrdinalIgnoreCase))) errors.Add("Broker client certificate allowlist is not configured.");
     var hosts = app.Configuration["AllowedHosts"] ?? string.Empty;
     if (hosts == "*" || hosts.Contains("REPLACE", StringComparison.OrdinalIgnoreCase)) errors.Add("AllowedHosts must be the real broker hostname.");
-    if (!OperatingSystem.IsWindows()) errors.Add("Production broker is designed for Windows/gMSA integrated authentication.");
+    if (adminSids.Length == 0) errors.Add("AdminAuthorization:AllowedGroupSids must contain at least one dedicated admin group SID.");
+    var pinOptions = app.Configuration.GetSection("PinSecurity").Get<PinSecurityOptions>() ?? new PinSecurityOptions();
+    var pepper = Environment.GetEnvironmentVariable(pinOptions.PepperEnvironmentVariable);
+    if (string.IsNullOrWhiteSpace(pepper)) errors.Add("PIN pepper environment variable is not configured.");
+    if (!OperatingSystem.IsWindows()) errors.Add("Production internal service is designed for Windows/gMSA integrated authentication.");
     if (errors.Count > 0) throw new InvalidOperationException("Unsafe production configuration: " + string.Join(" ", errors));
 }
 
