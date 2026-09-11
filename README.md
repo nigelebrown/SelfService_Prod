@@ -36,4 +36,8 @@ Optional kiosk mode provides short idle timeout, automatic recovery-session rese
 
 CI requires secret scanning, architecture regression checks, warnings-as-errors Release builds, security/unit tests and NuGet vulnerability reporting. **CI success does not equal production approval.** Final release still requires an isolated real AD/HR/mTLS test deployment, firewall verification and authenticated/unauthenticated DAST/penetration testing.
 
-See `docs/ADMIN-RBAC.md`, `docs/BREAK-GLASS.md`, `docs/KIOSK-HARDENING.md`, `docs/OPERATIONS.md`, `docs/DEPLOYMENT.md`, `docs/HR-INTEGRATION.md`, and `docs/SECURITY-TEST-PLAN.md`.
+## Documentation
+
+Start with **`docs/DEPLOYMENT-AND-TEST-GUIDE.md`** for the full two-package deployment sequence, architecture diagrams, firewall requirements and acceptance testing. An editable Word copy is stored as **`docs/Identity_Recovery_Deployment_and_Test_Guide.docx`**.
+
+Related references: `docs/ARCHITECTURE.md`, `docs/ADMIN-RBAC.md`, `docs/BREAK-GLASS.md`, `docs/KIOSK-HARDENING.md`, `docs/OPERATIONS.md`, `docs/DEPLOYMENT.md`, `docs/HR-INTEGRATION.md`, and `docs/SECURITY-TEST-PLAN.md`.
