@@ -12,7 +12,7 @@ public static class PinHasher
 
     public static byte[] DeriveVerifier(string pin, ReadOnlySpan<byte> salt, ReadOnlySpan<byte> pepper, int iterations)
     {
-        if (iterations < MinimumIterations) throw new ArgumentOutOfRangeException(nameof(iterations));
+        ArgumentOutOfRangeException.ThrowIfLessThan(iterations, MinimumIterations);
         var pinBytes = Encoding.UTF8.GetBytes(pin);
         byte[] preHash;
         using (var hmac = new HMACSHA256(pepper.ToArray()))
