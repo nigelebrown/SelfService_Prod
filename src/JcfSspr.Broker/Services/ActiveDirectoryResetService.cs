@@ -1,4 +1,5 @@
 using System.DirectoryServices.Protocols;
+using System.Globalization;
 using System.Text;
 using JcfSspr.Broker.Data;
 using JcfSspr.Broker.Options;
@@ -8,6 +9,7 @@ namespace JcfSspr.Broker.Services;
 
 public sealed class ActiveDirectoryResetService(IOptions<DirectoryOptions> options, ILogger<ActiveDirectoryResetService> logger)
 {
+    private const string MatchingRuleInChain = "1.2.840.113556.1.4.1941";
     private static readonly Action<ILogger, string, Exception?> ResetCompleted = LoggerMessage.Define<string>(
         LogLevel.Information,
         new EventId(2401, "AdPasswordResetCompleted"),
@@ -31,23 +33,24 @@ public sealed class ActiveDirectoryResetService(IOptions<DirectoryOptions> optio
         connection.SessionOptions.ReferralChasing = ReferralChasingOptions.None;
         connection.Bind();
 
-        var filter = "(objectGUID=" + EscapeGuid(member.AdObjectGuid) + ")";
-        var search = new SearchRequest(_options.BaseDn, filter, SearchScope.Subtree, "distinguishedName", "sAMAccountName", "adminCount", "memberOf");
+        var objectGuidFilter = "(objectGUID=" + EscapeGuid(member.AdObjectGuid) + ")";
+        var search = new SearchRequest(_options.BaseDn, objectGuidFilter, SearchScope.Subtree, "distinguishedName", "sAMAccountName", "adminCount", "memberOf");
         search.TimeLimit = TimeSpan.FromSeconds(_options.TimeoutSeconds);
         var response = (SearchResponse)connection.SendRequest(search, TimeSpan.FromSeconds(_options.TimeoutSeconds));
         if (response.Entries.Count != 1) throw new InvalidOperationException("Authoritative AD object was not found uniquely inside the configured member OU.");
         var entry = response.Entries[0];
-        var account = Convert.ToString(entry.Attributes["sAMAccountName"]?[0], System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        var account = Convert.ToString(entry.Attributes["sAMAccountName"]?[0], CultureInfo.InvariantCulture) ?? string.Empty;
         if (!account.Equals(member.AdAccountName, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Authoritative account mapping does not match the AD object.");
-        if (Convert.ToString(entry.Attributes["adminCount"]?[0], System.Globalization.CultureInfo.InvariantCulture) == "1") throw new ProtectedAccountException();
+        if (Convert.ToString(entry.Attributes["adminCount"]?[0], CultureInfo.InvariantCulture) == "1") throw new ProtectedAccountException();
         if (entry.Attributes["memberOf"] is DirectoryAttribute groups)
         {
             foreach (var value in groups)
             {
-                var group = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+                var group = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
                 if (_options.DeniedGroupDns.Contains(group, StringComparer.OrdinalIgnoreCase)) throw new ProtectedAccountException();
             }
         }
+        if (IsTransitivelyPrivileged(connection, objectGuidFilter)) throw new ProtectedAccountException();
 
         var dn = entry.DistinguishedName;
         var password = new DirectoryAttributeModification { Name = "unicodePwd", Operation = DirectoryAttributeOperation.Replace };
@@ -63,7 +66,22 @@ public sealed class ActiveDirectoryResetService(IOptions<DirectoryOptions> optio
         ResetCompleted(logger, member.AdAccountName, null);
     }
 
+    private bool IsTransitivelyPrivileged(LdapConnection connection, string objectGuidFilter)
+    {
+        foreach (var deniedGroupDn in _options.DeniedGroupDns.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var filter = $"(&{objectGuidFilter}(memberOf:{MatchingRuleInChain}:={EscapeFilter(deniedGroupDn)}))";
+            var request = new SearchRequest(_options.BaseDn, filter, SearchScope.Subtree, "objectGUID");
+            request.SizeLimit = 1;
+            request.TimeLimit = TimeSpan.FromSeconds(_options.TimeoutSeconds);
+            var response = (SearchResponse)connection.SendRequest(request, TimeSpan.FromSeconds(_options.TimeoutSeconds));
+            if (response.Entries.Count > 0) return true;
+        }
+        return false;
+    }
+
     private static string EscapeGuid(Guid guid) => string.Concat(guid.ToByteArray().Select(b => $"\\{b:X2}"));
+    private static string EscapeFilter(string value) => value.Replace("\\", "\\5c", StringComparison.Ordinal).Replace("*", "\\2a", StringComparison.Ordinal).Replace("(", "\\28", StringComparison.Ordinal).Replace(")", "\\29", StringComparison.Ordinal).Replace("\0", "\\00", StringComparison.Ordinal);
 }
 
 public sealed class ProtectedAccountException : Exception

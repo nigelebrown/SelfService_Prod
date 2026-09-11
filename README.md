@@ -1,38 +1,43 @@
-# JCF Self-Service Password Reset — hardened redesign
+# Identity Recovery & Self-Service Platform
 
-This repository contains the source for the redesigned JCF self-service password reset service. It intentionally does **not** reproduce the original all-in-one deployment.
+This repository contains two independently deployable packages plus a shared security library:
 
-## Topology
+- **IdentityRecovery.DmzPortal** — public/kiosk-facing presentation tier. It is not domain joined, contains no AD/HR/SQL credentials or credential stores, and its only southbound path is mTLS HTTPS to the Internal Identity Service.
+- **IdentityRecovery.InternalService** — internal identity authority, HR integration, PIN/TOTP verification, AD reset/provisioning, administration, audit, security alerting and review workflows.
+- **IdentityRecovery.Core** — shared contracts and cryptographic/security primitives.
 
-- **JcfSspr.Portal** — unprivileged presentation tier. Deploy the same application in the DMZ and, if desired, on the internal network. It has no SQL or Active Directory credentials and no direct route to AD or the personnel database.
-- **JcfSspr.Broker** — internal-only reset authority. It verifies the member against the authoritative view, validates the pre-enrolled TOTP/recovery factor, applies durable throttling, selects the AD object from the server-side authoritative mapping, and performs the reset over validated LDAPS while running as a gMSA/service identity.
-- **JcfSspr.Core** — shared contracts and security primitives.
+## Identity and registration
 
-The DMZ portal reaches only the broker HTTPS endpoint. The broker requires an allow-listed client certificate. Network policy should additionally restrict the connection to the portal host(s) and broker TCP/443 only.
+Static HR attributes resolve/corroborate an identity but are not authenticators. TOTP is the preferred routine factor. A secure PIN is the bootstrap/fallback factor and is stored only as a salted/peppered PBKDF2-HMAC-SHA256 verifier. Three failed PIN attempts lock the PIN method while an already-enrolled authenticator remains usable.
 
-## Security invariants
+For **admin-assisted registration**, authorized helpdesk staff first locate the HR record and verify the member against the HR photo/profile. The member then privately enters and confirms their own 8–12 digit PIN in masked fields. The PIN is immediately converted to its verifier, is never displayed back or logged, and the support reference is audited. The member then uses that PIN through the normal portal to bootstrap TOTP enrollment.
 
-1. Static personnel attributes are lookup data, **not authentication**.
-2. A pre-enrolled possession factor is required for every self-service reset.
-3. The browser never chooses the AD object to reset. The broker gets `AD Object GUID` and `AD Account Name` from the authoritative member record and resets that exact object.
-4. No AD or SQL passwords belong in configuration or source. The broker is designed for Windows integrated authentication/gMSA.
-5. LDAPS certificate validation is never bypassed.
-6. The AD search base must be the member OU, not the domain root.
-7. Protected/admin accounts are refused in code in addition to AD ACLs.
-8. Reset requests and member claims have redacted `ToString()` implementations and must never be logged as objects.
-9. TOTP codes are replay-protected; recovery codes are one-time and stored only as hashes.
-10. Production refuses placeholder/insecure configuration at startup.
+## AD provisioning safeguards
 
-## Build
+The internal service binds the immutable HR subject ID to the exact AD `objectGUID`. Existing identities are reused only when uniquely authoritative; collisions and ambiguity fail closed into an administrator review queue. New accounts are created disabled in a staging OU and are enabled only after required authenticator enrollment and successful password set.
 
-```powershell
-dotnet restore
-dotnet build --configuration Release
-dotnet test --configuration Release --no-build
-```
+Self-service profiles and groups use **positive allow-lists**, not only deny-lists. Configured groups are repeatedly checked through AD for nested/transitive ancestry to blocked privileged groups; failed or stale validation fails closed. Direct privileged groups remain blocked as defense in depth.
 
-Target runtime is .NET 10 LTS. CI also scans committed configuration for likely plaintext secrets and reports vulnerable NuGet dependencies.
+## Administration and RBAC
 
-## Deployment order
+Normal administration uses Windows/AD authentication. Authorization is inherited automatically from configured AD security-group SIDs, with separate roles for platform administrators, helpdesk, provisioning administrators, security administrators and auditors. A local password+TOTP break-glass administrator exists only for emergency internal access and cannot create/rotate itself.
 
-Read `docs/DEPLOYMENT.md`, `docs/DATABASE.md`, and `docs/ARCHITECTURE.md` before installing. The existing exposed SQL and AD passwords from the previous published ZIP must be rotated before this replacement is deployed.
+The admin package includes member support, assisted registration, self-service security controls, approved OU/group provisioning, a conflict/review queue, audit search and platform-only break-glass management. Sensitive support actions require a ticket/change/reference value and are audited.
+
+## Operational hardening
+
+The security database enforces application- and SQL-level append-only audit behavior. Critical security events can be forwarded through the configured notification channel and are always emitted as structured application logs for SIEM collection. Transient replay/reset/throttle/recovery state has automated retention cleanup; audits are not automatically deleted.
+
+Both packages expose liveness/readiness endpoints. The internal readiness check verifies the security store, HR source, validated LDAPS and Data Protection key path. Data Protection key rings can be stored on protected shared storage and encrypted with a certificate to support HA/DR. The DMZ portal supports the same persistent/certificate-protected key model for multi-node TempData continuity.
+
+Optional kiosk mode provides short idle timeout, automatic recovery-session reset, browser cache/storage clearing, no-store headers and back-forward-cache protection. OS/browser kiosk lockdown still belongs to the deployment baseline.
+
+## Release gates
+
+CI requires secret scanning, architecture regression checks, warnings-as-errors Release builds, security/unit tests and NuGet vulnerability reporting. **CI success does not equal production approval.** Final release still requires an isolated real AD/HR/mTLS test deployment, firewall verification and authenticated/unauthenticated DAST/penetration testing.
+
+## Documentation
+
+Start with **`docs/DEPLOYMENT-AND-TEST-GUIDE.md`** for the full two-package deployment sequence, architecture diagrams, firewall requirements and acceptance testing. An editable Word copy is stored as **`docs/Identity_Recovery_Deployment_and_Test_Guide.docx`**.
+
+Related references: `docs/ARCHITECTURE.md`, `docs/ADMIN-RBAC.md`, `docs/BREAK-GLASS.md`, `docs/KIOSK-HARDENING.md`, `docs/OPERATIONS.md`, `docs/DEPLOYMENT.md`, `docs/HR-INTEGRATION.md`, and `docs/SECURITY-TEST-PLAN.md`.

@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>JcfSspr.Core</RootNamespace>
+    <AssemblyName>IdentityRecovery.Core</AssemblyName>
+    <Product>Identity Recovery Shared Security Core</Product>
   </PropertyGroup>
 </Project>

@@ -1,58 +1,67 @@
 # Architecture
 
-## Recommended zero-additional-license design
-
-```text
-Internet
-   |
-FortiGate / reverse proxy
-   |
-===================== DMZ =====================
-   |
-JcfSspr.Portal (DMZ instance)
-- no AD credential
-- no SQL credential
-- no LDAP route
-- no personnel DB route
-   |
-   | HTTPS 443 + mTLS
-   | firewall: portal IP -> broker IP only
-   v
-=================== INTERNAL ==================
-JcfSspr.Broker
-- runs as gMSA/service identity
-- validates possession factor
-- authoritative member/account mapping
-- durable throttle/audit store
-   |                   |
-   | TLS + Integrated  | validated LDAPS 636
-   v                   v
-Member/Security SQL    Member OU in AD
-
-JcfSspr.Portal (internal instance) ----mTLS----^
-```
-
-The same `JcfSspr.Portal` binary can be installed twice: one DMZ-facing instance and one internal instance. Each instance gets a different client certificate so either path can be revoked independently.
-
 ## Trust boundaries
 
-The portal is considered compromiseable. A portal compromise must not disclose a reusable AD/SQL password or allow arbitrary LDAP/SQL access. The portal can submit only reset requests to the broker.
+```text
+Internet / approved internal kiosks
+              |
+           HTTPS 443
+              v
+====================== DMZ ======================
+IdentityRecovery.DmzPortal
+- separate deployment package; not domain joined
+- no AD/LDAP, HR/SQL, SMB, RDP or WinRM route
+- no reusable internal credentials or credential database
+- optional hardened kiosk mode
+              |
+              | HTTPS 443 + mandatory allow-listed mTLS client certificate
+              | request-ID + timestamp anti-replay
+              v
+================ INTERNAL APP ZONE ==============
+IdentityRecovery.InternalService
+- Windows/gMSA service identity
+- HR identity resolution and photo retrieval
+- PIN verifier + protected TOTP/recovery credentials
+- AD objectGUID binding, reset and provisioning
+- AD-group-SID RBAC administration + local break-glass path
+- review queue, append-only audit, security alerts, retention/readiness workers
+              |
+        +-----+---------------------+
+        |                           |
+ TLS + integrated auth       validated LDAPS 636
+        v                           v
+ HR/personnel source         Active Directory DS
+ Security SQL store          Windows Server 2016-2022 target
+```
 
-The broker is a Tier-1 security component and must remain internal. It is the only application process granted password-reset rights. Its gMSA should be delegated `Reset password` only on the member OU, denied interactive logon, and excluded from privileged OUs.
+The DMZ package is treated as compromiseable. Compromise must not provide a network path or reusable credential to HR, SQL or AD. The internal API is the only application bridge.
 
-## Identity and reset flow
+## Identity lifecycle
 
-1. Member supplies regulation/computer number plus existing personnel attributes to locate the member.
-2. Broker performs a generic match without revealing which field failed.
-3. Broker requires a TOTP code from an authenticator enrolled previously through the internal enrollment page. A single-use recovery code is accepted as the emergency self-service possession factor.
-4. Broker issues a five-minute, one-use reset transaction bound to the portal certificate and client address. The password is submitted only in the second request.
-5. Broker obtains `AD Object GUID`, `AD Account Name`, and notification address from the authoritative member view. The client never supplies the reset target.
-6. Broker validates password policy and rejects privileged/protected accounts.
-7. Broker locates the AD object by GUID inside the member OU, confirms the returned `sAMAccountName` matches the authoritative value, and writes `unicodePwd` over certificate-validated LDAPS.
-8. Broker records the event and sends a post-reset notification when the configured existing SMTP relay is available.
+First-time self-registration uses a secure PIN plus configured HR corroboration, then profile/photo confirmation and mandatory TOTP enrollment before password completion. Admin-assisted registration is available internally: a Helpdesk-authorized administrator verifies the member in person against the HR profile, records a support reference, and the member privately chooses their own PIN; only its verifier is stored.
 
-## Enrollment
+Routine recovery prefers TOTP. The internal service creates a five-minute, one-use transaction bound to source IP, mTLS client identity, HR subject, AD objectGUID and account name. The browser cannot select an AD object.
 
-`/enroll` exists only on the internal broker and requires Windows/Negotiate authentication. The authenticated Windows account must map exactly to the authoritative `AD Account Name` in the member view. The user scans a QR code, proves one TOTP code, and receives one-time recovery codes.
+## AD provisioning
 
-A person who is not enrolled cannot self-enroll after forgetting the password. Existing ICTD/service-desk identity procedures remain the fallback.
+Before creation the service searches HR-linked identifiers in AD. A unique authoritative `employeeID` match is reused; ambiguity or collision fails closed to the review queue. New accounts are created disabled in a configured staging OU and enabled only after required TOTP enrollment and successful password setting.
+
+Self-service provisioning requires both a positive profile allow-list and a positive group allow-list. All configured profile groups are recursively checked through AD for transitive ancestry into denied privileged groups. If validation cannot be completed, group provisioning fails closed. Password reset separately rejects denied account names, `adminCount=1`, direct denied-group membership, and transitive denied-group membership using the AD LDAP matching-rule-in-chain OID `1.2.840.113556.1.4.1941`.
+
+## Administrative RBAC
+
+AD groups provide automatic application authorization through immutable SIDs:
+
+- Platform Admin — full platform administration and break-glass custody.
+- Helpdesk — member support and assisted registration.
+- Provisioning Admin — approved OU/group profile changes and review queue.
+- Security Admin — self-service security state and security-response controls.
+- Auditor — read-only audit search.
+
+The local break-glass administrator uses password + TOTP and exists only in the Internal Service security store. It is for emergency internal access, not normal operation.
+
+## Audit and operational security
+
+`IdentityAudit` is append-only through both an EF interceptor and a SQL `INSTEAD OF UPDATE, DELETE` trigger. Critical events are structured logs suitable for the existing SIEM/logging pipeline and can also use the configured security notification channel. A retention worker deletes only transient operational state, not audit history.
+
+Both tiers expose liveness/readiness endpoints. Data Protection key rings can be placed on recoverable shared storage and certificate-protected for HA/DR.

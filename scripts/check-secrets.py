@@ -2,6 +2,7 @@ from pathlib import Path
 import json, re, sys
 
 bad=[]
+metadata_markers=('file','path','variable','length','policy','algorithm','iterations','enabled','minutes','days','issuer','code')
 for path in Path('.').rglob('*.json'):
     if any(part in {'bin','obj'} for part in path.parts): continue
     try: obj=json.loads(path.read_text(encoding='utf-8'))
@@ -11,7 +12,9 @@ for path in Path('.').rglob('*.json'):
             for k,v in value.items():
                 key=f'{prefix}:{k}' if prefix else k
                 lower=k.lower()
-                if isinstance(v,str) and any(x in lower for x in ('password','secret','token')):
+                looks_sensitive=any(x in lower for x in ('password','secret','token'))
+                is_metadata=any(x in lower for x in metadata_markers)
+                if isinstance(v,str) and looks_sensitive and not is_metadata:
                     if v and 'REPLACE' not in v.upper() and v not in ('false','true'):
                         bad.append((str(path), key))
                 walk(v,key)

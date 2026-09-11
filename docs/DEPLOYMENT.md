@@ -1,41 +1,57 @@
 # Deployment
 
-## Before deployment
+## Package 1 — DMZ Portal
 
-- Rotate the SQL and AD credentials exposed in the previous published build.
-- Correct the domain controller certificate and remove every certificate-validation bypass.
-- Ensure the member view includes authoritative AD account name and AD object GUID.
-- Create the SSPR security tables using `database/schema.sql`.
-- Create/delegate a gMSA (preferred) for the broker. Grant password-reset rights only on the member OU. Do not grant Domain Admin or broad directory rights.
-- Issue three certificates from the existing internal PKI: broker server certificate, DMZ portal client certificate, internal portal client certificate.
+Publish `IdentityRecovery.DmzPortal` to a dedicated DMZ Windows/IIS or hardened reverse-proxy application host that is **not domain joined**.
 
-## Internal broker
+Required controls:
 
-1. Install .NET 10 ASP.NET Core Hosting Bundle on the Windows/IIS host.
-2. Run the broker IIS application pool as the gMSA.
-3. Configure both SQL connection strings for `Integrated Security=True;Encrypt=True;TrustServerCertificate=False`.
-4. Configure the LDAPS server by DNS name, port 636, and member OU search base.
-5. Put only the two portal client-certificate thumbprints in `BrokerSecurity:AllowedClientCertificateThumbprints`.
-6. Set `DataProtection:KeyPath` to an ACL-protected directory accessible only to the broker gMSA and administrators.
-7. Configure IIS to accept client certificates on the API binding and use Windows Authentication for `/enroll`.
-8. Firewall the broker API so only the two portal hosts can reach it.
+- public/user-facing HTTPS certificate;
+- separate non-exportable client-auth certificate for portal -> Internal Service mTLS;
+- Kestrel loopback-only behind IIS/reverse proxy;
+- exact `AllowedHosts` and exact trusted proxy IP when forwarded headers are enabled;
+- firewall permit only DMZ portal IP -> Internal Service IP TCP/443;
+- deny/log DMZ -> AD/LDAP, HR/SQL, SMB, RDP, WinRM and general internal subnets;
+- no SQL, LDAP, domain, HR, PIN or TOTP credential store on the DMZ host.
 
-## Portal instances
+For redundant portal nodes configure a shared/recoverable `Portal:DataProtectionKeyPath`, a key-encryption certificate thumbprint and `RequirePersistentDataProtection=true`.
 
-Deploy `JcfSspr.Portal` twice if external and internal access are both required. Each instance:
+For dedicated recovery kiosks enable `Portal:KioskMode`, use a short idle timeout and apply the OS/browser controls in `KIOSK-HARDENING.md`.
 
-- runs behind IIS/reverse proxy on loopback;
-- has a unique client certificate installed in LocalMachine/My with the app-pool identity granted private-key read permission;
-- is configured only with the broker URL and its certificate thumbprint;
-- has no SQL/LDAP configuration;
-- accepts no direct traffic to the Kestrel loopback port.
+## Package 2 — Internal Identity Service
 
-The DMZ firewall permits only portal -> broker TCP/443. It must not permit portal -> DC or portal -> SQL.
+Deploy to a dedicated domain-joined Windows/IIS application server in an internal application-security zone.
 
-## Production startup gates
+- Run application pool/service as a least-privileged gMSA.
+- Use server TLS certificate with correct DNS SAN/trust chain.
+- Allow only the configured portal client certificate(s) on sensitive API calls.
+- SQL: Integrated Security + encryption + certificate validation.
+- AD: DC FQDN over validated LDAPS 636.
+- Delegate gMSA only reset/create/move/approved-group rights on intended scopes; never Domain Admin/Account Operator.
+- Restrict Data Protection key directory ACLs. For HA/DR use shared/recoverable storage and certificate encryption; test restoration before production.
+- Inject PIN and local-admin peppers outside source/config as independent >=256-bit random base64 secrets.
+- Install/maintain the approved offline password blocklist.
 
-Both applications intentionally refuse to start in `Production` if critical settings still contain `REPLACE-...`, wildcard hosts are used, the broker URL is not HTTPS, the broker client-certificate allowlist is empty, or the AD search base is not an OU.
+## AD administrative groups
 
-## Monitoring
+Create separate AD security groups and place their SIDs into `AdminAuthorization`:
 
-Collect broker structured logs and the `SsprAudit` SQL table into the existing SOC/SIEM workflow. Alert on unusual reset volume, repeated failures, blocked source addresses, enrollment changes, certificate failures, and any attempted protected-account reset.
+- `PlatformAdminGroupSids`
+- `HelpdeskGroupSids`
+- `ProvisioningAdminGroupSids`
+- `SecurityAdminGroupSids`
+- `AuditorGroupSids`
+
+Manage administrators in AD, never individually inside the application. Keep Platform Admin membership minimal.
+
+## Provisioning policy
+
+The default staging profile normally targets `OU=Newly Created User,...`. Self-service profiles must appear in `SelfServiceAllowedProfileCodes`, and every group in a self-service profile must also appear in `SelfServiceAllowedGroupDns`. The service continuously checks configured groups for nested/transitive privileged ancestry and fails closed when validation is unavailable.
+
+## Security store and monitoring
+
+Run `database/schema.sql`. Grant only required SQL permissions to the gMSA. Configure structured application logs into the existing SIEM/log collection pipeline and optionally enable `SecurityAlerts` recipients through the existing SMTP relay. Keep audit history under the organization's retention policy; the app only cleans transient state.
+
+## Acceptance
+
+Do not first exercise provisioning against production users. Use isolated AD scope and test HR records. Complete `SECURITY-TEST-PLAN.md`, including real gMSA delegation, certificates, mTLS, firewall isolation, DAST and role-separation tests. CI alone is not production sign-off.

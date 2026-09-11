@@ -1,0 +1,18 @@
+@page
+@model EnrollAuthenticatorModel
+@{ ViewData["Title"] = "Register authenticator"; }
+<section class="card">
+<div class="eyebrow">SECURE REGISTRATION</div><h1>Register an authenticator app</h1>
+@if (!string.IsNullOrWhiteSpace(Model.StatusMessage)) { <div class="alert @(Model.Complete ? "success" : "error")">@Model.StatusMessage</div> }
+@if (Model.Complete)
+{
+<p class="lede">Registration is complete. Store these recovery codes somewhere private. Each code works once; the service stores only their hashes.</p><div class="recovery-codes">@foreach (var code in Model.RecoveryCodes) { <code>@code</code> }</div><a class="button-link" asp-page="/Reset">Continue to password setup</a>
+}
+else if (!string.IsNullOrWhiteSpace(Model.QrDataUri))
+{
+<p class="lede">Open Google Authenticator, Microsoft Authenticator, 2FAS, Aegis, or another standards-based authenticator. Scan the QR code, then enter the current six-digit code.</p><img class="qr" src="@Model.QrDataUri" alt="Authenticator setup QR code" /><p class="hint">Manual key: <code>@Model.ManualSecret</code></p>
+<form method="post" autocomplete="off"><input asp-for="ProtectedState" type="hidden" /><label asp-for="Code">Authenticator code</label><input asp-for="Code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" /><button type="submit">Confirm authenticator</button></form>
+}
+else
+{<p class="lede">Authenticator registration cannot be started from this session. Return to the beginning and verify your identity again.</p><a asp-page="/Index">Start again</a>}
+</section>

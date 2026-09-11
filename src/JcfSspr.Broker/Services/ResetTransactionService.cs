@@ -6,25 +6,29 @@ namespace JcfSspr.Broker.Services;
 
 public sealed class ResetTransactionService(SecurityDbContext db, TimeProvider timeProvider)
 {
-    public async Task<string> CreateAsync(MemberRecord member, string sourceIp, string clientCertificateId, CancellationToken ct)
+    public Task<string> CreateAsync(MemberRecord member, string sourceIp, string clientCertificateId, CancellationToken ct)
+        => CreateAsync(member, string.Empty, false, sourceIp, clientCertificateId, ct);
+
+    public async Task<string> CreateAsync(MemberRecord member, string subjectId, bool requiresTotpEnrollment, string sourceIp, string clientCertificateId, CancellationToken ct)
     {
         var tokenBytes = RandomNumberGenerator.GetBytes(32);
         var token = Base64Url(tokenBytes);
         db.ResetTransactions.Add(new ResetTransactionEntity
         {
-            TokenHash = SHA256.HashData(tokenBytes), ComputerNumber = member.ComputerNumber, AccountName = member.AdAccountName,
-            ObjectGuid = member.AdObjectGuid, SourceIp = sourceIp, ClientCertificateId = clientCertificateId,
+            TokenHash = SHA256.HashData(tokenBytes), SubjectId = subjectId, ComputerNumber = member.ComputerNumber,
+            AccountName = member.AdAccountName, ObjectGuid = member.AdObjectGuid, SourceIp = sourceIp,
+            ClientCertificateId = clientCertificateId, ProfileConfirmed = false, RequiresTotpEnrollment = requiresTotpEnrollment,
             ExpiresUtc = timeProvider.GetUtcNow().AddMinutes(5).UtcDateTime
         });
         await db.SaveChangesAsync(ct);
+        CryptographicOperations.ZeroMemory(tokenBytes);
         return token;
     }
 
     public async Task<ResetTransactionEntity?> GetUsableAsync(string token, string sourceIp, string clientCertificateId, CancellationToken ct)
     {
-        byte[] raw; try { raw = FromBase64Url(token); } catch { return null; }
-        if (raw.Length != 32) return null;
-        var hash = SHA256.HashData(raw);
+        var hash = HashToken(token);
+        if (hash is null) return null;
         var transaction = await db.ResetTransactions.SingleOrDefaultAsync(x => x.TokenHash == hash, ct);
         var now = timeProvider.GetUtcNow().UtcDateTime;
         if (transaction is null || transaction.UsedUtc is not null || transaction.ExpiresUtc <= now || transaction.PasswordAttempts >= 5) return null;
@@ -32,8 +36,30 @@ public sealed class ResetTransactionService(SecurityDbContext db, TimeProvider t
         return transaction;
     }
 
+    public async Task MarkProfileConfirmedAsync(ResetTransactionEntity transaction, CancellationToken ct)
+    {
+        transaction.ProfileConfirmed = true;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task MarkTotpEnrollmentCompleteAsync(ResetTransactionEntity transaction, CancellationToken ct)
+    {
+        transaction.RequiresTotpEnrollment = false;
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task IncrementAttemptAsync(ResetTransactionEntity transaction, CancellationToken ct) { transaction.PasswordAttempts++; await db.SaveChangesAsync(ct); }
     public async Task MarkUsedAsync(ResetTransactionEntity transaction, CancellationToken ct) { transaction.UsedUtc = timeProvider.GetUtcNow().UtcDateTime; await db.SaveChangesAsync(ct); }
+
+    private static byte[]? HashToken(string token)
+    {
+        byte[] raw;
+        try { raw = FromBase64Url(token); } catch (FormatException) { return null; }
+        if (raw.Length != 32) { CryptographicOperations.ZeroMemory(raw); return null; }
+        var hash = SHA256.HashData(raw);
+        CryptographicOperations.ZeroMemory(raw);
+        return hash;
+    }
 
     private static string Base64Url(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+','-').Replace('/','_');
     private static byte[] FromBase64Url(string value) { var s=value.Replace('-','+').Replace('_','/'); s += new string('=', (4-s.Length%4)%4); return Convert.FromBase64String(s); }

@@ -5,40 +5,52 @@ namespace JcfSspr.Portal;
 
 public sealed class BrokerClient(HttpClient httpClient, ILogger<BrokerClient> logger)
 {
-    private static readonly Action<ILogger, Exception?> VerificationFailed = LoggerMessage.Define(
-        LogLevel.Warning, new EventId(1001, "BrokerVerificationFailed"), "Broker verification request failed");
-    private static readonly Action<ILogger, Exception?> PasswordResetFailed = LoggerMessage.Define(
-        LogLevel.Warning, new EventId(1002, "BrokerPasswordResetFailed"), "Broker password reset request failed");
+    private static readonly Action<ILogger, string, Exception?> BrokerFailure = LoggerMessage.Define<string>(LogLevel.Warning, new EventId(1001, "BrokerRequestFailed"), "Internal identity API request failed for {Operation}");
 
-    public async Task<VerificationResponse> VerifyAsync(VerificationRequest request, CancellationToken ct)
+    public Task<IdentityVerificationResponse> VerifyIdentityAsync(IdentityVerificationRequest request, CancellationToken ct) =>
+        PostAsync("api/v1/identity/verify", request, () => IdentityVerificationResponse.Rejected(Guid.NewGuid().ToString("N"), "The identity service is temporarily unavailable."), "identity-verify", ct);
+
+    public Task<ProfileConfirmationResponse> ConfirmProfileAsync(ProfileConfirmationRequest request, CancellationToken ct) =>
+        PostAsync("api/v1/identity/profile/confirm", request, () => new ProfileConfirmationResponse { Message = "The identity service is temporarily unavailable." }, "profile-confirm", ct);
+
+    public Task<TotpEnrollmentStartResponse> StartEnrollmentAsync(TotpEnrollmentStartRequest request, CancellationToken ct) =>
+        PostAsync("api/v1/identity/enroll/start", request, () => new TotpEnrollmentStartResponse { Message = "The identity service is temporarily unavailable." }, "enrollment-start", ct);
+
+    public Task<TotpEnrollmentConfirmResponse> ConfirmEnrollmentAsync(TotpEnrollmentConfirmRequest request, CancellationToken ct) =>
+        PostAsync("api/v1/identity/enroll/confirm", request, () => new TotpEnrollmentConfirmResponse { Message = "The identity service is temporarily unavailable." }, "enrollment-confirm", ct);
+
+    public Task<ResetResponse> ResetAsync(PasswordResetRequest request, CancellationToken ct) =>
+        PostAsync("api/v1/identity/reset", request, () => ResetResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable."), "password-reset", ct);
+
+    public async Task<bool> IsReadyAsync(CancellationToken ct)
     {
         try
         {
-            using var response = await httpClient.PostAsJsonAsync("api/v1/verify", request, ct);
-            if (!response.IsSuccessStatusCode) return VerificationResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable.");
-            return await response.Content.ReadFromJsonAsync<VerificationResponse>(cancellationToken: ct)
-                ?? VerificationResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable.");
+            using var response = await httpClient.GetAsync("health/ready", HttpCompletionOption.ResponseHeadersRead, ct);
+            return response.IsSuccessStatusCode;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            VerificationFailed(logger, ex);
-            return VerificationResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable.");
+            BrokerFailure(logger, "health-ready", ex);
+            return false;
         }
     }
 
-    public async Task<ResetResponse> ResetAsync(PasswordResetRequest request, CancellationToken ct)
+    private async Task<TResponse> PostAsync<TRequest, TResponse>(string path, TRequest payload, Func<TResponse> fallback, string operation, CancellationToken ct)
     {
         try
         {
-            using var response = await httpClient.PostAsJsonAsync("api/v1/reset", request, ct);
-            if (!response.IsSuccessStatusCode) return ResetResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable.");
-            return await response.Content.ReadFromJsonAsync<ResetResponse>(cancellationToken: ct)
-                ?? ResetResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable.");
+            using var message = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(payload) };
+            message.Headers.Add("X-Identity-Request-ID", Guid.NewGuid().ToString("D"));
+            message.Headers.Add("X-Identity-Timestamp", DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+            using var response = await httpClient.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!response.IsSuccessStatusCode) return fallback();
+            return await response.Content.ReadFromJsonAsync<TResponse>(cancellationToken: ct) ?? fallback();
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            PasswordResetFailed(logger, ex);
-            return ResetResponse.Rejected(Guid.NewGuid().ToString("N"), "The reset service is temporarily unavailable.");
+            BrokerFailure(logger, operation, ex);
+            return fallback();
         }
     }
 }

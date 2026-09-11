@@ -9,7 +9,7 @@
 <form method="post" autocomplete="off"><div asp-validation-summary="ModelOnly" class="validation"></div><div class="grid two">
 <div><label asp-for="Input.NewPassword"></label><input asp-for="Input.NewPassword" autocomplete="new-password" /></div>
 <div><label asp-for="Input.ConfirmPassword"></label><input asp-for="Input.ConfirmPassword" autocomplete="new-password" /></div>
-</div><p class="hint">Use at least 14 characters. Avoid your name, regulation number, JCF terms, and common passwords.</p><button type="submit">Reset password</button></form>
+</div><p class="hint">Use at least 14 characters. Avoid personal identifiers, organizational terms, and common or compromised passwords.</p><button type="submit">Reset password</button></form>
 }
-else { <p><a href="/">Return to account reset</a></p> }
+else { <p><a class="button-link" href="/ResetSession">Clear this session</a></p> }
 </section>
