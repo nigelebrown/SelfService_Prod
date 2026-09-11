@@ -14,7 +14,7 @@ public sealed class SecurityAlertWorker(IServiceScopeFactory scopeFactory, IOpti
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            try { if (_options.Enabled) await DeliverAsync(stoppingToken); }
+            try { await DeliverAsync(stoppingToken); }
             catch (Exception ex) { WorkerFailed(logger, ex); }
             await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(_options.PollSeconds, 10, 300)), stoppingToken);
         }
@@ -22,29 +22,19 @@ public sealed class SecurityAlertWorker(IServiceScopeFactory scopeFactory, IOpti
 
     private async Task DeliverAsync(CancellationToken ct)
     {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SecurityDbContext>();
-        var notifier = scope.ServiceProvider.GetRequiredService<SecurityNotifier>();
-        var codes = _options.CriticalDetailCodes.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        if (codes.Length == 0) return;
-        var candidates = await db.Audits.AsNoTracking()
-            .Where(x => codes.Contains(x.DetailCode))
-            .Where(x => !db.SecurityAlertDeliveries.Any(d => d.AuditId == x.Id && d.DeliveredUtc != null))
-            .OrderBy(x => x.TimestampUtc).Take(50).ToListAsync(ct);
-        foreach (var audit in candidates)
+        await using var scope=scopeFactory.CreateAsyncScope();
+        var db=scope.ServiceProvider.GetRequiredService<SecurityDbContext>(); var notifier=scope.ServiceProvider.GetRequiredService<SecurityNotifier>();
+        var codes=_options.CriticalDetailCodes.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(); if(codes.Length==0)return;
+        var cutoff=timeProvider.GetUtcNow().UtcDateTime.AddHours(-Math.Clamp(_options.LookbackHours,1,24*30));
+        var candidates=await db.Audits.AsNoTracking().Where(x=>x.TimestampUtc>=cutoff&&codes.Contains(x.DetailCode)).Where(x=>!db.SecurityAlertDeliveries.Any(d=>d.AuditId==x.Id&&d.DeliveredUtc!=null)).OrderBy(x=>x.TimestampUtc).Take(50).ToListAsync(ct);
+        foreach(var audit in candidates)
         {
-            var delivery = await db.SecurityAlertDeliveries.SingleOrDefaultAsync(x => x.AuditId == audit.Id, ct);
-            if (delivery?.Attempts >= Math.Clamp(_options.MaximumDeliveryAttempts, 1, 50)) continue;
-            delivery ??= new SecurityAlertDeliveryEntity { AuditId = audit.Id };
-            if (db.Entry(delivery).State == EntityState.Detached) db.SecurityAlertDeliveries.Add(delivery);
-            delivery.Attempts++;
-            delivery.UpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
-            try
-            {
-                if (await notifier.NotifySecurityEventAsync(audit, ct)) { delivery.DeliveredUtc = delivery.UpdatedUtc; delivery.LastError = string.Empty; }
-                else delivery.LastError = "Notification channel is not configured or unavailable.";
-            }
-            catch (Exception ex) { delivery.LastError = ex.GetType().Name[..Math.Min(ex.GetType().Name.Length, 120)]; }
+            var delivery=await db.SecurityAlertDeliveries.SingleOrDefaultAsync(x=>x.AuditId==audit.Id,ct);
+            if(delivery?.Attempts>=Math.Clamp(_options.MaximumDeliveryAttempts,1,50))continue;
+            delivery??=new SecurityAlertDeliveryEntity{AuditId=audit.Id}; if(db.Entry(delivery).State==EntityState.Detached)db.SecurityAlertDeliveries.Add(delivery);
+            delivery.Attempts++; delivery.UpdatedUtc=timeProvider.GetUtcNow().UtcDateTime;
+            try{if(await notifier.NotifySecurityEventAsync(audit,ct)){delivery.DeliveredUtc=delivery.UpdatedUtc;delivery.LastError=string.Empty;}else delivery.LastError="Notification channel is not configured or unavailable.";}
+            catch(Exception ex){delivery.LastError=ex.GetType().Name[..Math.Min(ex.GetType().Name.Length,120)];}
             await db.SaveChangesAsync(ct);
         }
     }

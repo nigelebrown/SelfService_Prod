@@ -49,10 +49,7 @@ public sealed class LocalAdminSecurityOptions
     public string PepperEnvironmentVariable { get; set; } = "IDENTITY_RECOVERY_LOCAL_ADMIN_PEPPER";
 }
 
-public sealed class AuthenticatorOptions
-{
-    public string Issuer { get; set; } = "Identity Recovery";
-}
+public sealed class AuthenticatorOptions { public string Issuer { get; set; } = "Identity Recovery"; }
 
 public sealed class ProvisioningOptions
 {
@@ -110,13 +107,9 @@ public sealed class SecurityAlertOptions
     public bool Enabled { get; set; }
     public string[] Recipients { get; set; } = [];
     public int PollSeconds { get; set; } = 30;
+    public int LookbackHours { get; set; } = 168;
     public int MaximumDeliveryAttempts { get; set; } = 10;
-    public string[] CriticalDetailCodes { get; set; } =
-    [
-        "LocalAdminAuthenticated", "LocalBreakGlassRotated", "AuthenticatorRevoked", "PinIssued",
-        "AssistedPinRegistered", "SelfServiceDisabled", "ProvisioningProfileApplied",
-        "IdentityVerifiedAccountProvisioned", "DirectoryAdminReview", "ProtectedAccount"
-    ];
+    public string[] CriticalDetailCodes { get; set; } = ["LocalAdminAuthenticated", "LocalBreakGlassRotated", "AuthenticatorRevoked", "PinIssued", "AssistedPinRegistered", "SelfServiceDisabled", "ProvisioningProfileApplied", "IdentityVerifiedAccountProvisioned", "DirectoryAdminReview", "ProtectedAccount"];
 }
 
 public sealed class RetentionOptions
