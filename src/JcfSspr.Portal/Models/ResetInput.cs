@@ -1,16 +1,32 @@
 using System.ComponentModel.DataAnnotations;
+using JcfSspr.Core.Contracts;
 
 namespace JcfSspr.Portal.Models;
 
-public sealed class VerificationInput
+public sealed class IdentityVerificationInput
 {
-    [Required, StringLength(32), Display(Name = "Regulation / computer number")] public string ComputerNumber { get; set; } = string.Empty;
-    [Required, StringLength(64), Display(Name = "First name")] public string FirstName { get; set; } = string.Empty;
-    [Required, StringLength(64), Display(Name = "Last name")] public string LastName { get; set; } = string.Empty;
-    [Required, StringLength(20), Display(Name = "TRN")] public string Trn { get; set; } = string.Empty;
-    [Required, DataType(DataType.Date), Display(Name = "Date of birth")] public DateOnly? DateOfBirth { get; set; }
-    [Required, StringLength(64), Display(Name = "Authenticator or recovery code")] public string AuthenticatorCode { get; set; } = string.Empty;
-    public override string ToString() => "VerificationInput [REDACTED]";
+    [Required, StringLength(128), Display(Name = "Username, computer number or regulation number")]
+    public string Identifier { get; set; } = string.Empty;
+
+    [Required, Display(Name = "Verification method")]
+    public IdentityMethod Method { get; set; } = IdentityMethod.Authenticator;
+
+    [Required, StringLength(128), DataType(DataType.Password), Display(Name = "Authenticator code or secure PIN")]
+    public string Secret { get; set; } = string.Empty;
+
+    [StringLength(20), Display(Name = "TRN")]
+    public string Trn { get; set; } = string.Empty;
+
+    [DataType(DataType.Date), Display(Name = "Date of birth")]
+    public DateOnly? DateOfBirth { get; set; }
+
+    [StringLength(64), Display(Name = "Middle name")]
+    public string MiddleName { get; set; } = string.Empty;
+
+    [StringLength(40), Display(Name = "Provisioning code (if provided)")]
+    public string ProvisioningCode { get; set; } = string.Empty;
+
+    public override string ToString() => "IdentityVerificationInput [REDACTED]";
 }
 
 public sealed class ResetPasswordInput

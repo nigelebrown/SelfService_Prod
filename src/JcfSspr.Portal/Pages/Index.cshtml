@@ -1,19 +1,34 @@
 @page
 @model IndexModel
-@{ ViewData["Title"] = "Verify identity"; }
+@using JcfSspr.Core.Contracts
+@{ ViewData["Title"] = "Identity recovery"; }
 <section class="card">
-<div class="eyebrow">SELF-SERVICE PASSWORD RESET</div><h1>Verify your identity</h1>
-<p class="lede">Your member details locate your record. Your pre-enrolled authenticator or one-time recovery code is the possession factor that authorizes self-service recovery.</p>
+<div class="eyebrow">IDENTITY RECOVERY & SELF-SERVICE</div>
+<h1>@(Model.Verified ? "Confirm your profile" : "Recover or register your account")</h1>
+@if (!Model.Verified)
+{
+<p class="lede">Use your registered authenticator whenever possible. If you are registering for the first time, use your secure PIN and provide the additional identity details requested below. Your profile is not displayed until verification succeeds.</p>
 @if (!string.IsNullOrWhiteSpace(Model.StatusMessage)) { <div class="alert error" role="status">@Model.StatusMessage</div> }
 <form method="post" autocomplete="off">
-<div asp-validation-summary="ModelOnly" class="validation"></div><div class="grid two">
-<div><label asp-for="Input.ComputerNumber"></label><input asp-for="Input.ComputerNumber" inputmode="numeric" autocomplete="off" /></div>
-<div><label asp-for="Input.DateOfBirth"></label><input asp-for="Input.DateOfBirth" type="date" autocomplete="off" /></div>
-<div><label asp-for="Input.FirstName"></label><input asp-for="Input.FirstName" autocomplete="off" /></div>
-<div><label asp-for="Input.LastName"></label><input asp-for="Input.LastName" autocomplete="off" /></div>
-<div><label asp-for="Input.Trn"></label><input asp-for="Input.Trn" autocomplete="off" /></div>
-<div><label asp-for="Input.AuthenticatorCode"></label><input asp-for="Input.AuthenticatorCode" autocomplete="one-time-code" /></div>
-</div><button type="submit">Continue securely</button></form>
-@if (Model.ShowEnrollmentLink && !string.IsNullOrWhiteSpace(Model.EnrollmentUrl)) { <p class="enroll"><a href="@Model.EnrollmentUrl">Enroll or replace your authenticator on the JCF network</a>.</p> }
-<p class="help">Not enrolled or lost both your authenticator and recovery codes? Contact ICTD using the established identity-verification process.</p>
+<div asp-validation-summary="ModelOnly" class="validation"></div>
+<div class="grid two">
+<div><label asp-for="Input.Identifier"></label><input asp-for="Input.Identifier" autocomplete="username" /></div>
+<div><label asp-for="Input.Method"></label><select asp-for="Input.Method"><option value="1">Authenticator app (preferred)</option><option value="2">Secure PIN</option></select></div>
+<div><label asp-for="Input.Secret"></label><input asp-for="Input.Secret" autocomplete="one-time-code" inputmode="numeric" /></div>
+<div><label asp-for="Input.ProvisioningCode"></label><input asp-for="Input.ProvisioningCode" autocomplete="off" /></div>
+</div>
+<details class="bootstrap"><summary>First-time registration using a PIN</summary><p class="hint">Complete at least two of these HR details when using a PIN before an authenticator has been registered.</p><div class="grid three"><div><label asp-for="Input.DateOfBirth"></label><input asp-for="Input.DateOfBirth" type="date" autocomplete="off" /></div><div><label asp-for="Input.MiddleName"></label><input asp-for="Input.MiddleName" autocomplete="off" /></div><div><label asp-for="Input.Trn"></label><input asp-for="Input.Trn" autocomplete="off" /></div></div></details>
+<button type="submit">Verify securely</button>
+</form>
+}
+else
+{
+@if (Model.AccountCreated) { <div class="alert success">A directory account was securely created in the configured new-user staging area. It remains disabled until this recovery process completes.</div> }
+<div class="profile-card">
+@if (!string.IsNullOrWhiteSpace(Model.Profile!.PhotoDataUri)) { <img class="profile-photo" src="@Model.Profile.PhotoDataUri" alt="Employee profile photograph" /> }
+<div><h2>@Model.Profile.DisplayName</h2><dl><dt>Computer number</dt><dd>@Model.Profile.ComputerNumber</dd><dt>Regulation number</dt><dd>@Model.Profile.RegulationNumberMasked</dd><dt>Email</dt><dd>@Model.Profile.EmailAddress</dd><dt>Directory status</dt><dd>@Model.Profile.DirectoryStatus</dd></dl></div>
+</div>
+<p class="lede">Confirm that this photograph and profile belong to you before continuing. Confirmation does not replace authentication; your identity has already been verified by the internal identity service.</p>
+<form method="post"><button asp-page-handler="Confirm" type="submit">Yes, this is my profile</button><button class="secondary" asp-page-handler="Reject" type="submit">No, stop</button></form>
+}
 </section>
