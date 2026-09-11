@@ -1,41 +1,39 @@
 # Identity Recovery & Self-Service Platform
 
-This repository contains two independently deployable security packages plus a shared code library:
+This repository contains two independently deployable packages plus a shared security library:
 
-- **IdentityRecovery.DmzPortal** — the public/kiosk-facing presentation package. It is intentionally unprivileged, is not domain joined, stores no HR/AD/SQL credentials, and has no direct route to HR, SQL, LDAP, SMB, RDP, or WinRM.
-- **IdentityRecovery.InternalService** — the internal identity authority and administration package. It performs HR identity resolution, secure PIN/TOTP validation, duplicate-safe AD resolution/provisioning, password reset, provisioning-policy enforcement, audit, and administrator support functions.
+- **IdentityRecovery.DmzPortal** — public/kiosk-facing presentation tier. It is not domain joined, contains no AD/HR/SQL credentials or credential stores, and its only southbound path is mTLS HTTPS to the Internal Identity Service.
+- **IdentityRecovery.InternalService** — internal identity authority, HR integration, PIN/TOTP verification, AD reset/provisioning, administration, audit, security alerting and review workflows.
 - **IdentityRecovery.Core** — shared contracts and cryptographic/security primitives.
 
-The source directories retain their original internal namespace names for code continuity, but published assembly/product names are generic and the platform is not organization-branded.
+## Identity and registration
 
-## Security model
+Static HR attributes resolve/corroborate an identity but are not authenticators. TOTP is the preferred routine factor. A secure PIN is the bootstrap/fallback factor and is stored only as a salted/peppered PBKDF2-HMAC-SHA256 verifier. Three failed PIN attempts lock the PIN method while an already-enrolled authenticator remains usable.
 
-The DMZ portal can communicate only with the Internal Identity Service over HTTPS 443 using an allow-listed mutual-TLS client certificate. Every sensitive API request also carries a unique request ID and timestamp; the internal service rejects replayed or stale requests.
+For **admin-assisted registration**, authorized helpdesk staff first locate the HR record and verify the member against the HR photo/profile. The member then privately enters and confirms their own 8–12 digit PIN in masked fields. The PIN is immediately converted to its verifier, is never displayed back or logged, and the support reference is audited. The member then uses that PIN through the normal portal to bootstrap TOTP enrollment.
 
-The Internal Identity Service uses Windows integrated authentication/gMSA for SQL and Active Directory operations. SQL certificate validation is mandatory and AD changes use validated LDAPS. No reusable AD or SQL password belongs in source or application configuration.
+## AD provisioning safeguards
 
-Static HR attributes resolve and corroborate a claimed identity but do not by themselves authorize registration or reset. Routine authentication uses a standards-based TOTP authenticator. A secure PIN can bootstrap/recover access; locally stored PINs are represented only by PBKDF2-HMAC-SHA256 verifiers using unique salts plus a separate server-side pepper. Three failed PIN attempts lock the PIN method without disabling an already-enrolled authenticator.
+The internal service binds the immutable HR subject ID to the exact AD `objectGUID`. Existing identities are reused only when uniquely authoritative; collisions and ambiguity fail closed into an administrator review queue. New accounts are created disabled in a staging OU and are enabled only after required authenticator enrollment and successful password set.
 
-An HR profile/photo is released only after successful authentication. The browser never chooses the AD object to reset. The internal service binds the employee's immutable HR subject ID to the exact AD `objectGUID` and account name.
+Self-service profiles and groups use **positive allow-lists**, not only deny-lists. Configured groups are repeatedly checked through AD for nested/transitive ancestry to blocked privileged groups; failed or stale validation fails closed. Direct privileged groups remain blocked as defense in depth.
 
-## AD provisioning
+## Administration and RBAC
 
-Before creating an account, the service searches AD for employee-ID and email/UPN/proxy-address matches. A unique employee-ID match is linked; any conflicting or ambiguous match stops automation and creates an administrator-review case. A new account is created **disabled** in a configured staging OU, receives only allow-listed baseline groups, and is enabled only after the member has completed required authenticator enrollment and successfully set a password.
+Normal administration uses Windows/AD authentication. Authorization is inherited automatically from configured AD security-group SIDs, with separate roles for platform administrators, helpdesk, provisioning administrators, security administrators and auditors. A local password+TOTP break-glass administrator exists only for emergency internal access and cannot create/rotate itself.
 
-Provisioning profiles configure target OUs and platform-managed groups. Self-service users may select only profiles explicitly marked `UserSelectable`; privileged groups are hard-blocked. Internal administrators can apply approved profiles, and switching profiles reconciles only groups managed by this platform so unrelated access is not disturbed.
+The admin package includes member support, assisted registration, self-service security controls, approved OU/group provisioning, a conflict/review queue, audit search and platform-only break-glass management. Sensitive support actions require a ticket/change/reference value and are audited.
 
-## Administrator support
+## Operational hardening
 
-The internal administration console uses Windows authentication and a dedicated AD group-SID allow-list. Authorized staff can search an employee, inspect HR/AD linkage and recovery status, issue or replace a secure PIN (shown once only), unlock the PIN method, revoke authenticator enrollment, enable/disable self-service, and apply approved provisioning profiles. Administrative actions are audited; PINs, TOTP secrets, passwords, and stored recovery-code values are never retrievable.
+The security database enforces application- and SQL-level append-only audit behavior. Critical security events can be forwarded through the configured notification channel and are always emitted as structured application logs for SIEM collection. Transient replay/reset/throttle/recovery state has automated retention cleanup; audits are not automatically deleted.
 
-## Quality and security gates
+Both packages expose liveness/readiness endpoints. The internal readiness check verifies the security store, HR source, validated LDAPS and Data Protection key path. Data Protection key rings can be stored on protected shared storage and encrypted with a certificate to support HA/DR. The DMZ portal supports the same persistent/certificate-protected key model for multi-node TempData continuity.
 
-CI requires:
+Optional kiosk mode provides short idle timeout, automatic recovery-session reset, browser cache/storage clearing, no-store headers and back-forward-cache protection. OS/browser kiosk lockdown still belongs to the deployment baseline.
 
-1. plaintext-secret scan;
-2. architecture regression scan (including no DMZ LDAP/SQL code and no certificate-validation bypass);
-3. .NET 10 Release build with warnings treated as errors and current analyzers;
-4. unit/security tests;
-5. vulnerable NuGet dependency reporting.
+## Release gates
 
-Read `docs/ARCHITECTURE.md`, `docs/DEPLOYMENT.md`, `docs/HR-INTEGRATION.md`, and `docs/SECURITY-TEST-PLAN.md` before deployment. A production release additionally requires an isolated HR/AD end-to-end test and network/security validation.
+CI requires secret scanning, architecture regression checks, warnings-as-errors Release builds, security/unit tests and NuGet vulnerability reporting. **CI success does not equal production approval.** Final release still requires an isolated real AD/HR/mTLS test deployment, firewall verification and authenticated/unauthenticated DAST/penetration testing.
+
+See `docs/ADMIN-RBAC.md`, `docs/BREAK-GLASS.md`, `docs/KIOSK-HARDENING.md`, `docs/OPERATIONS.md`, `docs/DEPLOYMENT.md`, `docs/HR-INTEGRATION.md`, and `docs/SECURITY-TEST-PLAN.md`.
