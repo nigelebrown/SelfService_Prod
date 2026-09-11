@@ -1,69 +1,67 @@
 # Architecture
 
-## Hard trust separation
+## Trust boundaries
 
 ```text
-Internet / internal kiosk users
-           |
-      HTTPS 443
-           v
+Internet / approved internal kiosks
+              |
+           HTTPS 443
+              v
 ====================== DMZ ======================
 IdentityRecovery.DmzPortal
-- independent deployment package
-- not domain joined
-- no AD/LDAP route
-- no HR/SQL route
-- no service-account credentials
-- no PIN/TOTP database
-           |
-           | HTTPS 443 + mandatory mTLS
-           | request ID + timestamp replay defense
-           | firewall: exact portal IP -> exact service IP only
-           v
+- separate deployment package; not domain joined
+- no AD/LDAP, HR/SQL, SMB, RDP or WinRM route
+- no reusable internal credentials or credential database
+- optional hardened kiosk mode
+              |
+              | HTTPS 443 + mandatory allow-listed mTLS client certificate
+              | request-ID + timestamp anti-replay
+              v
 ================ INTERNAL APP ZONE ==============
 IdentityRecovery.InternalService
-- independent deployment package
 - Windows/gMSA service identity
-- Windows-authenticated admin console
-- HR identity resolution and employee photo retrieval
-- PIN verifier and TOTP/recovery credential store
-- duplicate-safe AD identity linking/provisioning
-- reset transactions, throttling, audit and review queue
-           |
-       +---+-------------------+
-       |                       |
- TLS + integrated auth     validated LDAPS 636
-       |                       |
-       v                       v
- HR/personnel source      Active Directory DS
- Security SQL store       2016-2022 target
+- HR identity resolution and photo retrieval
+- PIN verifier + protected TOTP/recovery credentials
+- AD objectGUID binding, reset and provisioning
+- AD-group-SID RBAC administration + local break-glass path
+- review queue, append-only audit, security alerts, retention/readiness workers
+              |
+        +-----+---------------------+
+        |                           |
+ TLS + integrated auth       validated LDAPS 636
+        v                           v
+ HR/personnel source         Active Directory DS
+ Security SQL store          Windows Server 2016-2022 target
 ```
 
-The DMZ package is considered compromiseable. Compromise must not reveal an AD/SQL service password or give the host a network route to the HR database or domain controllers. The only southbound application path is the constrained identity API over mTLS.
+The DMZ package is treated as compromiseable. Compromise must not provide a network path or reusable credential to HR, SQL or AD. The internal API is the only application bridge.
 
 ## Identity lifecycle
 
-### First-time self-registration
+First-time self-registration uses a secure PIN plus configured HR corroboration, then profile/photo confirmation and mandatory TOTP enrollment before password completion. Admin-assisted registration is available internally: a Helpdesk-authorized administrator verifies the member in person against the HR profile, records a support reference, and the member privately chooses their own PIN; only its verifier is stored.
 
-1. User supplies an identifier (employee/computer/regulation number, username, or email as configured) plus the secure PIN.
-2. Before a TOTP enrollment exists, the service also requires at least two matching HR corroboration attributes by default (for example TRN, DOB, middle name). These attributes are not authenticators.
-3. Internal service validates the PIN verifier and HR identity. The DMZ receives no profile before authentication succeeds.
-4. Internal service searches AD. A single authoritative existing employee-ID match is linked. Any ambiguity/collision creates an admin-review case and stops.
-5. If no account exists and the provisioning policy permits it, a disabled account is created in the configured staging OU with only approved baseline groups.
-6. The authenticated user sees the HR photo/profile and explicitly confirms it.
-7. User enrolls a standards-based TOTP authenticator and proves the first code. Recovery codes are generated once and stored only as hashes.
-8. User sets the directory password. Only after this succeeds is a newly provisioned account enabled.
+Routine recovery prefers TOTP. The internal service creates a five-minute, one-use transaction bound to source IP, mTLS client identity, HR subject, AD objectGUID and account name. The browser cannot select an AD object.
 
-### Routine recovery
+## AD provisioning
 
-1. User identifies the account and supplies a current TOTP code (preferred) or secure PIN.
-2. Internal service authenticates the factor, then releases the HR profile/photo for confirmation.
-3. A cryptographically random five-minute reset transaction is created, bound to source IP, mTLS client identity, HR subject, AD ObjectGUID and AD account.
-4. The new password is submitted in a separate request and written to that exact AD object over validated LDAPS.
-5. The transaction becomes unusable and the action is audited/optionally notified.
+Before creation the service searches HR-linked identifiers in AD. A unique authoritative `employeeID` match is reused; ambiguity or collision fails closed to the review queue. New accounts are created disabled in a configured staging OU and enabled only after required TOTP enrollment and successful password setting.
 
-## Administration
+Self-service provisioning requires both a positive profile allow-list and a positive group allow-list. All configured profile groups are recursively checked through AD for transitive ancestry into denied privileged groups. If validation cannot be completed, group provisioning fails closed. Password reset separately rejects denied account names, `adminCount=1`, direct denied-group membership, and transitive denied-group membership using the AD LDAP matching-rule-in-chain OID `1.2.840.113556.1.4.1941`.
 
-The administration console exists only in the internal package. Windows/Negotiate authentication plus an allow-listed AD group SID is required. Administrators can issue one-time-display PINs, unlock PIN verification, revoke TOTP enrollment, enable/disable self-service, and apply configured OU/group profiles. They cannot retrieve PIN verifiers as PINs, TOTP secrets, passwords, or used recovery codes.
+## Administrative RBAC
 
-Provisioning profiles form an authorization boundary. Privileged groups are blocked globally. The profile engine reconciles only groups declared in platform profiles and never removes unrelated group memberships.
+AD groups provide automatic application authorization through immutable SIDs:
+
+- Platform Admin — full platform administration and break-glass custody.
+- Helpdesk — member support and assisted registration.
+- Provisioning Admin — approved OU/group profile changes and review queue.
+- Security Admin — self-service security state and security-response controls.
+- Auditor — read-only audit search.
+
+The local break-glass administrator uses password + TOTP and exists only in the Internal Service security store. It is for emergency internal access, not normal operation.
+
+## Audit and operational security
+
+`IdentityAudit` is append-only through both an EF interceptor and a SQL `INSTEAD OF UPDATE, DELETE` trigger. Critical events are structured logs suitable for the existing SIEM/logging pipeline and can also use the configured security notification channel. A retention worker deletes only transient operational state, not audit history.
+
+Both tiers expose liveness/readiness endpoints. Data Protection key rings can be placed on recoverable shared storage and certificate-protected for HA/DR.
