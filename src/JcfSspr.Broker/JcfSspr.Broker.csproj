@@ -11,4 +11,7 @@
     <PackageReference Include="System.DirectoryServices.Protocols" Version="10.0.12" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../data/common-passwords.txt" Link="data/common-passwords.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

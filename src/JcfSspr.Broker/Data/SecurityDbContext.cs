@@ -15,6 +15,7 @@ public sealed class SecurityDbContext(DbContextOptions<SecurityDbContext> option
     public DbSet<AuditEntity> Audits => Set<AuditEntity>();
     public DbSet<ResetTransactionEntity> ResetTransactions => Set<ResetTransactionEntity>();
     public DbSet<ProvisioningReviewEntity> ProvisioningReviews => Set<ProvisioningReviewEntity>();
+    public DbSet<SecurityAlertDeliveryEntity> SecurityAlertDeliveries => Set<SecurityAlertDeliveryEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,5 +36,6 @@ public sealed class SecurityDbContext(DbContextOptions<SecurityDbContext> option
         modelBuilder.Entity<AuditEntity>().ToTable("IdentityAudit").HasKey(x => x.Id);
         modelBuilder.Entity<AuditEntity>().HasIndex(x => x.TimestampUtc);
         modelBuilder.Entity<AuditEntity>().HasIndex(x => new { x.SubjectId, x.TimestampUtc });
+        modelBuilder.Entity<SecurityAlertDeliveryEntity>().ToTable("IdentitySecurityAlertDelivery").HasKey(x => x.AuditId);
     }
 }

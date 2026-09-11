@@ -60,6 +60,10 @@ public sealed class ProvisioningOptions
     public string DefaultProfileCode { get; set; } = "DEFAULT";
     public ProvisioningProfileOptions[] Profiles { get; set; } = [];
     public string[] BlockedGroupDns { get; set; } = [];
+    public string[] SelfServiceAllowedProfileCodes { get; set; } = [];
+    public string[] SelfServiceAllowedGroupDns { get; set; } = [];
+    public bool RequireNestedGroupValidation { get; set; } = true;
+    public int GroupValidationRefreshMinutes { get; set; } = 5;
 }
 
 public sealed class ProvisioningProfileOptions
@@ -76,12 +80,20 @@ public sealed class ProvisioningProfileOptions
 
 public sealed class AdminAuthorizationOptions
 {
+    public string[] PlatformAdminGroupSids { get; set; } = [];
+    public string[] HelpdeskGroupSids { get; set; } = [];
+    public string[] ProvisioningAdminGroupSids { get; set; } = [];
+    public string[] SecurityAdminGroupSids { get; set; } = [];
+    public string[] AuditorGroupSids { get; set; } = [];
     public string[] AllowedGroupSids { get; set; } = [];
 }
 
 public sealed class DataProtectionOptions
 {
     public string KeyPath { get; set; } = @"C:\ProgramData\IdentityRecovery\keys";
+    public string KeyEncryptionCertificateThumbprint { get; set; } = string.Empty;
+    public bool RequireCertificateProtection { get; set; }
+    public int KeyLifetimeDays { get; set; } = 30;
 }
 
 public sealed class NotificationOptions
@@ -91,4 +103,28 @@ public sealed class NotificationOptions
     public int Port { get; set; } = 25;
     public bool EnableSsl { get; set; }
     public string From { get; set; } = "REPLACE-NO-REPLY-ADDRESS";
+}
+
+public sealed class SecurityAlertOptions
+{
+    public bool Enabled { get; set; }
+    public string[] Recipients { get; set; } = [];
+    public int PollSeconds { get; set; } = 30;
+    public int MaximumDeliveryAttempts { get; set; } = 10;
+    public string[] CriticalDetailCodes { get; set; } =
+    [
+        "LocalAdminAuthenticated", "LocalBreakGlassRotated", "AuthenticatorRevoked", "PinIssued",
+        "AssistedPinRegistered", "SelfServiceDisabled", "ProvisioningProfileApplied",
+        "IdentityVerifiedAccountProvisioned", "DirectoryAdminReview", "ProtectedAccount"
+    ];
+}
+
+public sealed class RetentionOptions
+{
+    public int SweepMinutes { get; set; } = 30;
+    public int ResetTransactionDays { get; set; } = 2;
+    public int UsedRecoveryCodeDays { get; set; } = 30;
+    public int ThrottleDays { get; set; } = 7;
+    public int ClosedReviewDays { get; set; } = 180;
+    public int AlertDeliveryDays { get; set; } = 90;
 }

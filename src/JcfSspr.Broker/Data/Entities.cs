@@ -108,6 +108,7 @@ public sealed class ProvisioningReviewEntity
     public DateTime CreatedUtc { get; set; }
     public DateTime? ResolvedUtc { get; set; }
     public string ResolvedBy { get; set; } = string.Empty;
+    public string ResolutionNotes { get; set; } = string.Empty;
 }
 
 public sealed class AuditEntity
@@ -123,6 +124,16 @@ public sealed class AuditEntity
     public string Category { get; set; } = "Identity";
     public string Outcome { get; set; } = string.Empty;
     public string DetailCode { get; set; } = string.Empty;
+    public string Detail { get; set; } = string.Empty;
+}
+
+public sealed class SecurityAlertDeliveryEntity
+{
+    public Guid AuditId { get; set; }
+    public int Attempts { get; set; }
+    public DateTime? DeliveredUtc { get; set; }
+    public DateTime UpdatedUtc { get; set; }
+    public string LastError { get; set; } = string.Empty;
 }
 
 public sealed class MemberRecord
